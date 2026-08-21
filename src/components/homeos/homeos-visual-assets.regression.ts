@@ -201,6 +201,48 @@ assert(
     'the Dishwasher container card must use its approved realistic appliance cutout.'
 );
 
+const expectedPlumbingEquipmentVisualGroups: Readonly<Record<string, readonly string[]>> = {
+    'garbage-disposal': ['Garbage Disposal'],
+    dishwasher: ['Dishwasher'],
+    'instant-hot-water-dispenser': ['Instant Hot Water Dispenser'],
+    'reverse-osmosis-system': ['Reverse Osmosis System'],
+    'water-heater': ['Water Heater'],
+    'washer-box-laundry-connections': ['Washer Box / Laundry Connections'],
+    'whole-home-filter': ['Whole Home Filter'],
+    'expansion-tank': ['Expansion Tank'],
+    'water-heater-recirculation-pump': ['Water Heater Recirculation Pump'],
+    'main-water-shutoff': ['Main Water Shutoff'],
+    'smart-water-shutoff': ['Smart Water Shutoff'],
+};
+
+const expectedPlumbingEquipmentLabels = Object.values(expectedPlumbingEquipmentVisualGroups).flat();
+
+assert(
+    expectedPlumbingEquipmentLabels.length === 11,
+    'the complete current plumbing Equipment Card catalog must stay under realistic visual coverage.'
+);
+assert(
+    new Set(expectedPlumbingEquipmentLabels).size === expectedPlumbingEquipmentLabels.length,
+    'the plumbing Equipment Card visual coverage list must not contain duplicate names.'
+);
+
+Object.entries(expectedPlumbingEquipmentVisualGroups).forEach(([expectedKey, labels]) => {
+    labels.forEach((label) => {
+        const visual = resolveHomeOSSemanticVisual(label, 'equipment');
+        assert(visual?.key === expectedKey, `${label} must resolve to its approved realistic equipment cutout.`);
+        assert(Boolean(visual.asset.source), `${label} must never fall through to a generic Equipment icon.`);
+    });
+});
+
+assert(
+    resolveHomeOSSemanticVisual('Whole Home Filter / Halo 5', 'equipment')?.key === 'whole-home-filter',
+    'the established Halo 5 alias must share the Whole Home Filter equipment cutout.'
+);
+assert(
+    resolveHomeOSSemanticVisual('Tank Water Heater', 'equipment')?.key === 'water-heater',
+    'a tank-water-heater alias must share the canonical Water Heater equipment cutout.'
+);
+
 assert(
     !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),
     'A custom or unknown record must remain eligible for the conservative generic fallback.'

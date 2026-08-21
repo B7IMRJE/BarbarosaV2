@@ -72,8 +72,22 @@ const HOME_OS_FIXTURE_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
     semanticVisual('dishwasher', ['dishwasher'], bundledAsset('dishwasher', () => require('../../../assets/homeos/fixtures/dishwasher.png'))),
 ];
 
+const HOME_OS_PLUMBING_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    semanticVisual('garbage-disposal', ['garbage disposal', 'food waste disposer'], bundledAsset('garbage-disposal', () => require('../../../assets/homeos/equipment/garbage-disposal.png'))),
+    semanticVisual('instant-hot-water-dispenser', ['instant hot water dispenser', 'hot water dispenser'], bundledAsset('instant-hot-water-dispenser', () => require('../../../assets/homeos/equipment/instant-hot-water-dispenser.png'))),
+    semanticVisual('reverse-osmosis-system', ['reverse osmosis system', 'ro system'], bundledAsset('reverse-osmosis-system', () => require('../../../assets/homeos/equipment/reverse-osmosis-system.png'))),
+    semanticVisual('washer-box-laundry-connections', ['washer box laundry connections', 'washer box', 'laundry connections', 'washing machine box'], bundledAsset('washer-box-laundry-connections', () => require('../../../assets/homeos/equipment/washer-box-laundry-connections.png'))),
+    semanticVisual('whole-home-filter', ['whole home filter halo 5', 'whole home filter', 'whole house filter', 'halo 5'], bundledAsset('whole-home-filter', () => require('../../../assets/homeos/equipment/whole-home-filter.png'))),
+    semanticVisual('expansion-tank', ['expansion tank'], bundledAsset('expansion-tank', () => require('../../../assets/homeos/equipment/expansion-tank.png'))),
+    semanticVisual('water-heater-recirculation-pump', ['water heater recirculation pump', 'recirculation pump'], bundledAsset('water-heater-recirculation-pump', () => require('../../../assets/homeos/equipment/water-heater-recirculation-pump.png'))),
+    semanticVisual('water-heater', ['storage water heater', 'tank water heater', 'water heater'], bundledAsset('water-heater', () => require('../../../assets/homeos/equipment/water-heater.png'))),
+    semanticVisual('main-water-shutoff', ['whole home water shutoff', 'main water shutoff valve', 'main water shutoff', 'main water valve', 'front yard main water valve'], bundledAsset('main-water-shutoff', () => require('../../../assets/homeos/equipment/main-water-shutoff.png'))),
+    semanticVisual('smart-water-shutoff', ['smart water monitor and shutoff', 'automatic smart water shutoff', 'whole home smart water shutoff', 'smart water shutoff'], bundledAsset('smart-water-shutoff', () => require('../../../assets/homeos/equipment/smart-water-shutoff.png'))),
+];
+
 const HOME_OS_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
     ...HOME_OS_FIXTURE_VISUAL_RULES,
+    ...HOME_OS_PLUMBING_EQUIPMENT_VISUAL_RULES,
     semanticVisual('angle-stop', [
         'bathroom sink hot angle stop', 'bathroom sink cold angle stop',
         'kitchen hot angle stop', 'kitchen cold angle stop',
