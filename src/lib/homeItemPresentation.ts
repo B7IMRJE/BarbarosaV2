@@ -17,9 +17,12 @@ export function resolveHomeItemPresentation({
 }): HomeItemPresentation {
     if (!routeParamsReady) return 'detail';
     if (String(presentation || '').trim().toLowerCase() !== 'assembly') return 'detail';
-    if (isProviderMode || isManagementMode) return 'detail';
+    if (isManagementMode) return 'detail';
     if (String(focusedView || '').trim()) return 'detail';
     if (String(maintenanceGuide || '').trim()) return 'detail';
+
+    // Assigned providers use the same deck-driven card presentation; focused work routes above retain full tools.
+    if (isProviderMode) return 'assembly';
 
     return 'assembly';
 }

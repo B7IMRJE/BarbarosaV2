@@ -4,7 +4,8 @@ runHomeItemPresentationRegressions();
 
 export function runHomeItemPresentationRegressions() {
     explicitHomeownerAssemblyPresentationIsRequired();
-    protectedWorkflowsAlwaysKeepFullDetail();
+    deckOpenedProviderItemsUseModernCardPresentation();
+    protectedFocusedWorkflowsKeepFullDetail();
     webHydrationNeverFlashesAssemblyPresentation();
 }
 
@@ -14,11 +15,14 @@ function explicitHomeownerAssemblyPresentationIsRequired() {
     assert(resolveHomeItemPresentation({ ...baseContext(), presentation: 'unknown' }) === 'detail', 'Unknown presentation values should keep the existing full detail page.');
 }
 
-function protectedWorkflowsAlwaysKeepFullDetail() {
-    assert(resolveHomeItemPresentation({ ...baseContext(), isProviderMode: true }) === 'detail', 'Provider mode must keep its authorized full item workflow.');
+function deckOpenedProviderItemsUseModernCardPresentation() {
+    assert(resolveHomeItemPresentation({ ...baseContext(), isProviderMode: true }) === 'assembly', 'A provider item opened from the modern deck should keep the modern card presentation.');
+}
+
+function protectedFocusedWorkflowsKeepFullDetail() {
     assert(resolveHomeItemPresentation({ ...baseContext(), isManagementMode: true }) === 'detail', 'Management mode must keep its authorized full item workflow.');
-    assert(resolveHomeItemPresentation({ ...baseContext(), focusedView: 'management' }) === 'detail', 'Focused item management must take precedence over assembly presentation.');
-    assert(resolveHomeItemPresentation({ ...baseContext(), maintenanceGuide: 'spotlight' }) === 'detail', 'The maintenance guide must keep the current full item workflow.');
+    assert(resolveHomeItemPresentation({ ...baseContext(), isProviderMode: true, focusedView: 'management' }) === 'detail', 'Focused provider item management must take precedence over modern card presentation.');
+    assert(resolveHomeItemPresentation({ ...baseContext(), isProviderMode: true, maintenanceGuide: 'spotlight' }) === 'detail', 'The provider maintenance guide must keep the full workflow.');
 }
 
 function webHydrationNeverFlashesAssemblyPresentation() {

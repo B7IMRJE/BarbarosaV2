@@ -3859,7 +3859,11 @@ export default function ItemScreen() {
         if (!itemSlug) return;
 
         if (providerModeContext) {
-            router.push(providerModeItemPath(itemSlug, providerModeContext) as any);
+            router.push(providerModeItemPath(
+                itemSlug,
+                providerModeContext,
+                itemPresentation === 'assembly' ? { presentation: 'assembly' } : {}
+            ) as any);
             return;
         }
 
