@@ -5,6 +5,7 @@ import {
     resolveHomeOSFallbackIcon,
     resolveHomeOSVisualSource,
 } from './homeos-visual-assets';
+import { propertyAreaCatalog } from '../../lib/propertyAreas';
 
 function assert(condition: unknown, message: string): asserts condition {
     if (!condition) throw new Error(`HomeOS visual asset regression failed: ${message}`);
@@ -46,10 +47,72 @@ assert(kitchenAreaIcon === '🍳', 'the separate Kitchen area resolver must keep
 assert(kitchenSinkIcon === '🚰', 'Kitchen Sink must use a sink icon instead of the Kitchen frying pan.');
 assert(resolveHomeOSFallbackIcon('Kitchen Sink') === '🚰', 'the shared fallback resolver must prioritize Sink before Kitchen.');
 
+const expectedAreaIcons: Readonly<Record<string, string>> = {
+    Kitchen: '🍳',
+    'Living Room': '🛋️',
+    'Dining Room': '🍽️',
+    Hallway: '🚪',
+    Garage: '🚗',
+    Laundry: '🧺',
+    'Primary Bedroom': '🛏️',
+    Bedroom: '🛌',
+    'Primary Bathroom': '🛁',
+    Bathroom: '🚿',
+    Office: '💻',
+    Attic: '🪜',
+    Basement: '🧱',
+    'Utility or Mechanical Room': '⚙️',
+    Gym: '🏋️',
+    Bar: '🍸',
+    Theater: '🎬',
+    'Man Cave': '🎮',
+    'Wine Room': '🍷',
+    'Storage Room': '📦',
+    'Interior Walkway': '🚶',
+    'Custom Area': '⌂',
+    'Front Yard': '🌳',
+    Backyard: '🏡',
+    'Left Side Yard': '🌿',
+    'Right Side Yard': '🌿',
+    Patio: '🪑',
+    Porch: '🏠',
+    Balcony: '🌇',
+    Driveway: '🛣️',
+    'Pool Area': '🏊',
+    'Spa Area': '🫧',
+    'BBQ or Outdoor Kitchen': '🍖',
+    'Detached Garage': '🚙',
+    Shed: '🛖',
+    Workshop: '🛠️',
+    'Guest House or ADU': '🏘️',
+    'Pool House': '🏡',
+    Landscaping: '🌱',
+    Irrigation: '💦',
+    Roof: '🏠',
+    'Exterior Mechanical Area': '🌀',
+    'Exterior Shutoff Area': '🔧',
+    'Custom Exterior Area': '⌂',
+};
+
+propertyAreaCatalog.forEach(({ name }) => {
+    assert(
+        resolveHomeOSAreaFallbackIcon(name) === expectedAreaIcons[name],
+        `${name} must have its approved semantic HomeOS scene.`
+    );
+});
+assert(
+    resolveHomeOSAreaFallbackIcon('Primary Bedroom 2') === '🛏️',
+    'numbered area records must retain their room scene.'
+);
+assert(
+    resolveHomeOSAreaFallbackIcon('Unmapped Custom Space') === '⌂',
+    'only a truly custom or unknown area may use the neutral home fallback.'
+);
+
 const expectedEquipmentIcons: readonly [label: string, icon: string][] = [
     ['Dishwasher', '🍽️'],
     ['Refrigerator', '🧊'],
-    ['Stove', '🔥'],
+    ['Stove', '🍳'],
     ['Kitchen Faucet', '🚰'],
     ['Kitchen Counter', '🗄️'],
     ['Garbage Disposal', '⚙️'],
@@ -64,7 +127,7 @@ const expectedEquipmentIcons: readonly [label: string, icon: string][] = [
     ['Water Main', '〰️'],
     ['Refrigerator Water Line', '〰️'],
     ['Appliance', '🔌'],
-    ['Water Heater', '🔥'],
+    ['Water Heater', '🛢️'],
     ['Toilet', '🚽'],
     ['Standing Shower', '🚿'],
     ['Roman Tub', '🛁'],
@@ -83,6 +146,17 @@ const expectedEquipmentIcons: readonly [label: string, icon: string][] = [
     ['Fixture', '🧰'],
     ['Equipment', '🧰'],
     ['Component', '🧰'],
+    ['Air Handler', '❄️'],
+    ['Main Electrical Panel', '⚡'],
+    ['Irrigation Controller', '🎛️'],
+    ['Sump Pump', '⚙️'],
+    ['Security Alarm', '🛡️'],
+    ['Backflow Preventer', '💧'],
+    ['Camera Inspection', '📹'],
+    ['Fire Sprinkler Riser', '🚿'],
+    ['Sprinkler Head', '💦'],
+    ['Rain Sensor', '💦'],
+    ['Valve Box', '🗃️'],
 ];
 
 expectedEquipmentIcons.forEach(([label, icon]) => {

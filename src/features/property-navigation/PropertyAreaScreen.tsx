@@ -21,7 +21,6 @@ import {
     resolveHomeOSContainerGrid,
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
-import { getAreaIcon } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
@@ -128,7 +127,6 @@ export default function PropertyAreaScreen() {
                 <AreaContainer
                     title={title}
                     subtitle={placementText}
-                    fallbackIcon={getAreaIcon(title)}
                     accessibilityLabel={placementText
                         ? `Open ${title}. ${placementText}`
                         : `Open area ${title}`}

@@ -40,7 +40,6 @@ import {
     buildPropertyAreaContainerCreateRoute,
     resolvePropertyAreaContainerDeck,
 } from '../../lib/propertyAreaContainerDeck';
-import { getAreaIcon } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
@@ -302,7 +301,6 @@ export default function PropertyAreaDetailScreen() {
                                                 subtitle={isExplicitPortal
                                                     ? `Portal · ${portalPlacementText}`
                                                     : undefined}
-                                                fallbackIcon={getAreaIcon(title)}
                                                 accessibilityLabel={isExplicitPortal
                                                     ? `Open linked ${title}. ${portalPlacementText}`
                                                     : `Open area ${title}`}

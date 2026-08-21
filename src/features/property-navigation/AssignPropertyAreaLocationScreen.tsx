@@ -15,7 +15,6 @@ import {
     hasAmbiguousPortableLaundryAreas,
     isPortableLaundryAreaName,
 } from '../../lib/propertyAreas';
-import { getAreaIcon } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
@@ -269,7 +268,6 @@ export default function AssignPropertyAreaLocationScreen() {
                                                 key={host.id}
                                                 title={title}
                                                 subtitle={selected ? 'Selected · Place inside this area' : 'Place inside this area'}
-                                                fallbackIcon={getAreaIcon(title)}
                                                 accessibilityLabel={`${selected ? 'Selected. ' : ''}Place ${targetName} inside ${title}`}
                                                 accessibilityState={{ selected }}
                                                 onPress={() => choosePlacement('inside_area', host.id)}
