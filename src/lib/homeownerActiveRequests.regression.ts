@@ -32,6 +32,7 @@ export function runHomeownerActiveRequestRegressions() {
     rootShellKeepsSosVisibleForHomeownersOnly();
     multipleActiveRequestsShowCountAndSelectHighestPriority();
     terminalRequestsDisappear();
+    terminalEventsClearStaleRequestRows();
     noRawUuidOrInternalStatusIsDisplayed();
     unrelatedPropertyRequestsAreNotIncludedByCallerScope();
 }
@@ -193,6 +194,22 @@ function terminalRequestsDisappear() {
     assert(!isActiveHomeownerServiceRequest(request({ status: 'completed' })), 'Completed requests should not remain floating.');
     assert(!isActiveHomeownerServiceRequest(request({ status: 'cancelled' })), 'Cancelled requests should not remain floating.');
     assert(trackers.length === 1 && trackers[0].request.id === 'active', 'Only non-terminal requests should remain.');
+}
+
+function terminalEventsClearStaleRequestRows() {
+    const trackers = buildHomeownerActiveRequestTrackers([
+        request({ id: 'stale-complete', status: 'scheduled' }),
+        request({ id: 'stale-cancelled', status: 'in_progress' }),
+        request({ id: 'still-active', status: 'scheduled' }),
+    ], {
+        'stale-complete': [event('stale-complete', 'work_completed')],
+        'stale-cancelled': [event('stale-cancelled', 'appointment_cancelled')],
+    });
+
+    assert(
+        trackers.length === 1 && trackers[0].request.id === 'still-active',
+        'A terminal homeowner event must clear a stale active request row from the floating tracker.'
+    );
 }
 
 function noRawUuidOrInternalStatusIsDisplayed() {
