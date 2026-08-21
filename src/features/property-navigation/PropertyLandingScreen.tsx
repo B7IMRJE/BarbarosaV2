@@ -3,36 +3,42 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import { MainDestinationCard } from '../../components/homeos/HomeOSVisualFoundation';
+import HomeOSStatusLegend from '../../components/homeos/HomeOSStatusLegend';
 import HomeownerActiveRequestStatus from '../../components/serviceRequests/HomeownerActiveRequestStatus';
-import { activePropertyErrorMessage, requireActivePropertyMembership } from '../../lib/activeProperty';
-import { formatSingleLineAddress, loadActiveHomeIdentity, type HomeIdentity } from '../../lib/homeIdentity';
+import ThemedButton from '../../components/theme/ThemedButton';
+import { activePropertyErrorMessage, selectActiveProperty } from '../../lib/activeProperty';
+import { clearPendingCompanyInviteState } from '../../lib/companyInviteState';
 import {
-    propertyLandingIdentityPresentation,
-    propertyLandingPrimaryDestinations,
-    propertyLandingWorkflowDestinations,
-    resolvePropertyLandingIdentity,
-} from '../../lib/propertyLandingNavigation';
+    loadHomePropertyCollection,
+    type HomePropertyCollection,
+} from '../../lib/homePropertyCollection';
+import { signOutFromHomeOS } from '../../lib/homeosSignOut';
 import {
     resolveHomeOSContainerGrid,
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
+import { propertyLandingWorkflowDestinations } from '../../lib/propertyLandingNavigation';
+import { clearSessionActivity } from '../../lib/sessionSecurity';
+import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
 export default function PropertyLandingScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const { width: viewportWidth } = useWindowDimensions();
-    const [identity, setIdentity] = useState<HomeIdentity | null>(null);
+    const [collection, setCollection] = useState<HomePropertyCollection | null>(null);
     const [loading, setLoading] = useState(true);
+    const [openingPropertyId, setOpeningPropertyId] = useState('');
+    const [signingOut, setSigningOut] = useState(false);
     const [message, setMessage] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
         setMessage('');
         try {
-            await requireActivePropertyMembership();
-            setIdentity(await loadActiveHomeIdentity());
+            setCollection(await loadHomePropertyCollection());
         } catch (error) {
+            setCollection(null);
             setMessage(activePropertyErrorMessage(error));
         } finally {
             setLoading(false);
@@ -41,97 +47,176 @@ export default function PropertyLandingScreen() {
 
     useFocusEffect(useCallback(() => { void load(); }, [load]));
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
-    const identityPresentation = resolvePropertyLandingIdentity({
-        name: identity?.name,
-        address: formatSingleLineAddress(identity?.address),
-    });
     const contentWidth = Math.min(Math.max(viewportWidth - foundation.spacing.comfortable * 2, 0), 960);
     const cardGap = foundation.spacing.regular;
-    const columns = resolveHomeOSContainerGrid({
+    const propertyColumns = resolveHomeOSContainerGrid({
         viewportWidth,
         contentWidth,
         minimumItemWidth: scaleIcon(280),
         gap: cardGap,
         maximumColumns: 2,
     });
-    const cardWidth = resolveHomeOSContainerItemWidth({
+    const propertyCardWidth = resolveHomeOSContainerItemWidth({
         contentWidth,
-        columns,
+        columns: propertyColumns,
         gap: cardGap,
         minimumItemWidth: scaleIcon(280),
         maximumItemWidth: scaleIcon(460),
     });
-    const primaryCardWidth = propertyLandingPrimaryDestinations.length === 1
-        ? Math.min(contentWidth, scaleIcon(640))
-        : cardWidth;
+    const activityColumns = resolveHomeOSContainerGrid({
+        viewportWidth,
+        contentWidth,
+        minimumItemWidth: scaleIcon(152),
+        gap: cardGap,
+        maximumColumns: 4,
+    });
+    const activityCardWidth = resolveHomeOSContainerItemWidth({
+        contentWidth,
+        columns: activityColumns,
+        gap: cardGap,
+        minimumItemWidth: scaleIcon(152),
+        maximumItemWidth: scaleIcon(260),
+    });
+
+    async function openProperty(propertyId: string) {
+        if (openingPropertyId) return;
+
+        setOpeningPropertyId(propertyId);
+        setMessage('');
+
+        try {
+            await selectActiveProperty(propertyId);
+            setCollection((current) => current ? {
+                ...current,
+                selectedPropertyId: propertyId,
+                properties: current.properties.map((property) => ({
+                    ...property,
+                    isSelected: property.propertyId === propertyId,
+                })),
+            } : current);
+            router.push('/home' as never);
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+        } finally {
+            setOpeningPropertyId('');
+        }
+    }
+
+    async function handleSignOut() {
+        if (signingOut) return;
+
+        setSigningOut(true);
+        setMessage('');
+
+        const result = await signOutFromHomeOS({
+            signOut: (scope) => supabase.auth.signOut({ scope }),
+            clearPendingInviteState: clearPendingCompanyInviteState,
+            clearSessionActivity,
+            replaceWithLogin: () => router.replace('/auth/login' as never),
+        });
+
+        if (result.status === 'failed') {
+            setSigningOut(false);
+            setMessage(result.message);
+        }
+    }
 
     return (
-        <ScrollView style={{ flex: 1, backgroundColor: theme.colors.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: foundation.spacing.comfortable, paddingBottom: scaleIcon(42), alignItems: 'center' }}>
+        <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentInsetAdjustmentBehavior="automatic"
+            contentContainerStyle={{
+                padding: foundation.spacing.comfortable,
+                paddingBottom: scaleIcon(42),
+                alignItems: 'center',
+            }}
+        >
             <View style={{ width: '100%', maxWidth: 960, gap: foundation.spacing.regular }}>
                 <HomeHeader />
                 <View
-                    accessibilityRole="summary"
-                    accessibilityLabel={`${identityPresentation.title}${identityPresentation.address ? `, ${identityPresentation.address}` : ''}`}
+                    testID="homeos-property-collection"
                     style={[
                         foundation.surface,
                         {
-                            minHeight: scaleIcon(156),
                             padding: foundation.spacing.comfortable,
+                            gap: foundation.spacing.regular,
                             overflow: 'hidden',
-                            justifyContent: 'center',
-                            backgroundColor: theme.colors.surface,
                         },
                     ]}
                 >
                     <Text
-                        testID="homeos-property-identity-home-motif"
+                        testID="homeos-property-collection-motif"
                         pointerEvents="none"
                         accessible={false}
                         style={{
                             position: 'absolute',
                             right: foundation.spacing.regular,
-                            bottom: scaleIcon(-10),
-                            fontSize: scaleIcon(112),
-                            opacity: 0.16,
+                            top: scaleIcon(42),
+                            fontSize: scaleIcon(108),
+                            opacity: 0.08,
                         }}
-                    >{propertyLandingIdentityPresentation.showHomeMotif ? '🏠' : ''}</Text>
-                    <View style={{ maxWidth: '78%', gap: foundation.spacing.compact }}>
-                        <Text selectable style={[foundation.typography.label, { color: theme.colors.primary, textTransform: 'uppercase' }]}>
-                            {identityPresentation.eyebrow}
-                        </Text>
-                        <Text selectable numberOfLines={2} style={[foundation.typography.destinationTitle, { fontSize: scaleFont(30), lineHeight: scaleFont(36) }]}>
-                            {identityPresentation.title}
-                        </Text>
-                        {identityPresentation.address ? (
-                            <Text selectable numberOfLines={2} style={foundation.typography.body}>
-                                {identityPresentation.address}
+                    >🏠</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: foundation.spacing.regular }}>
+                        <View style={{ flex: 1, gap: foundation.spacing.compact }}>
+                            <Text selectable style={[foundation.typography.label, { color: theme.colors.primary, textTransform: 'uppercase' }]}>HomeOS</Text>
+                            <Text selectable numberOfLines={2} style={[foundation.typography.destinationTitle, { fontSize: scaleFont(30), lineHeight: scaleFont(36) }]}>
+                                {collection?.title || 'Your Properties'}
                             </Text>
-                        ) : null}
+                        </View>
+                        <ThemedButton
+                            title={signingOut ? 'Signing Out...' : 'Sign Out'}
+                            accessibilityLabel="Sign out of HomeOS"
+                            testID="homeos-sign-out"
+                            disabled={signingOut}
+                            variant="ghost"
+                            onPress={() => void handleSignOut()}
+                            style={{ minHeight: scaleIcon(44), minWidth: scaleIcon(92), paddingHorizontal: scaleIcon(12), paddingVertical: scaleIcon(8) }}
+                            textStyle={{ fontSize: scaleFont(13) }}
+                        />
                     </View>
+                    <Text selectable style={foundation.typography.body}>
+                        Choose a property to open its rooms, equipment, documents, requests, and service history.
+                    </Text>
+                    <ThemedButton
+                        title="Add Property"
+                        accessibilityLabel="Add another property to this HomeOS account"
+                        testID="homeos-add-property"
+                        variant="secondary"
+                        onPress={() => router.push('/property/add' as never)}
+                        style={{ alignSelf: 'flex-start', minHeight: scaleIcon(46), paddingHorizontal: scaleIcon(18) }}
+                    />
+
+                    {loading ? (
+                        <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: scaleIcon(32) }} />
+                    ) : (
+                        <View testID="homeos-property-cards" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
+                            {(collection?.properties || []).map((property) => (
+                                <MainDestinationCard
+                                    key={property.propertyId}
+                                    title={property.name}
+                                    description={property.address || 'Verified property'}
+                                    visual={{ source: require('../../../assets/homeos/destinations/home.png') }}
+                                    fallbackIcon="🏠"
+                                    visualContentFit="contain"
+                                    actionLabel={property.isSelected ? 'Open selected property' : 'Open property'}
+                                    accentColor={property.isSelected ? theme.colors.primary : undefined}
+                                    disabled={Boolean(openingPropertyId)}
+                                    accessibilityState={{ selected: property.isSelected, busy: openingPropertyId === property.propertyId }}
+                                    onPress={() => void openProperty(property.propertyId)}
+                                    accessibilityLabel={`Open ${property.name}${property.address ? ` at ${property.address}` : ''}`}
+                                    style={{ width: propertyCardWidth, minWidth: propertyCardWidth, maxWidth: propertyCardWidth }}
+                                />
+                            ))}
+                        </View>
+                    )}
                 </View>
-                {loading ? <ActivityIndicator color={theme.colors.primary} style={{ marginTop: scaleIcon(32) }} /> : (
-                    <View testID="homeos-property-destinations" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
-                        {propertyLandingPrimaryDestinations.map((destination) => (
-                            <MainDestinationCard
-                                key={destination.key}
-                                title={destination.title}
-                                description={destination.description}
-                                visual={{ source: require('../../../assets/homeos/destinations/home.png') }}
-                                fallbackIcon="🏠"
-                                visualContentFit="contain"
-                                actionLabel={destination.actionLabel}
-                                onPress={() => router.push(destination.route as any)}
-                                accessibilityLabel={destination.accessibilityLabel}
-                                style={{ width: primaryCardWidth, minWidth: primaryCardWidth, maxWidth: primaryCardWidth }}
-                            />
-                        ))}
-                    </View>
-                )}
+
                 {!loading ? (
                     <View testID="homeos-property-workflow-cards" style={{ gap: foundation.spacing.compact }}>
+                        <HomeOSStatusLegend />
                         <Text selectable style={foundation.typography.containerTitle}>Home activity</Text>
                         <Text selectable style={foundation.typography.body}>
-                            Active emergency updates stay available in the request tracker. Open any card for the established workflow details.
+                            Emergency updates remain in the request tracker. Open a card for the established workflow.
                         </Text>
                         <HomeownerActiveRequestStatus bottomOffset={0} presentation="inline" />
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
@@ -141,16 +226,25 @@ export default function PropertyLandingScreen() {
                                     title={destination.title}
                                     description={destination.description}
                                     fallbackIcon={destination.icon}
-                                    actionLabel={destination.actionLabel}
-                                    onPress={() => router.push(destination.route as any)}
+                                    actionLabel="Open"
+                                    size="compact"
+                                    onPress={() => router.push(destination.route as never)}
                                     accessibilityLabel={destination.accessibilityLabel}
-                                    style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                                    style={{ width: activityCardWidth, minWidth: activityCardWidth, maxWidth: activityCardWidth }}
                                 />
                             ))}
                         </View>
                     </View>
                 ) : null}
-                {!!message && <Text selectable style={{ color: theme.colors.danger, fontSize: scaleFont(14), marginTop: scaleIcon(18) }}>{message}</Text>}
+                {!!message && (
+                    <Text
+                        selectable
+                        accessibilityLiveRegion="polite"
+                        style={{ color: theme.colors.danger, fontSize: scaleFont(14), marginTop: scaleIcon(8) }}
+                    >
+                        {message}
+                    </Text>
+                )}
             </View>
         </ScrollView>
     );

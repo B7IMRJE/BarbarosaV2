@@ -1,5 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
     KeyboardAvoidingView,
@@ -15,6 +15,7 @@ import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
     PROPERTY_TYPE_OPTIONS,
+    createAdditionalHomeIdentity,
     createFirstHomeIdentity,
     type PropertyType,
     type VerifiedAddress,
@@ -24,6 +25,7 @@ import {
     type HomeStoryCount,
 } from '../../lib/homePropertyAccess';
 import { syncMyProfile } from '../../lib/profileSync';
+import { selectActiveProperty } from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -32,6 +34,8 @@ type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function CreateHomeOnboardingScreen() {
     const { theme } = useTheme();
+    const pathname = usePathname();
+    const addingProperty = pathname === '/property/add';
     const params = useLocalSearchParams<{ next?: string | string[] }>();
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [homeName, setHomeName] = useState('');
@@ -95,15 +99,23 @@ export default function CreateHomeOnboardingScreen() {
                 role: 'HOMEOWNER',
             });
 
-            await createFirstHomeIdentity({
+            const input = {
                 name: trimmedHomeName,
                 propertyType,
                 address: verifiedAddress,
                 storyCount,
                 gateCode,
-            });
+            };
+            const propertyId = addingProperty
+                ? await createAdditionalHomeIdentity(input)
+                : await createFirstHomeIdentity(input);
 
-            router.replace(buildThemeRoute(nextRoute) as never);
+            if (addingProperty) {
+                await selectActiveProperty(propertyId);
+                router.replace('/' as never);
+            } else {
+                router.replace(buildThemeRoute(nextRoute) as never);
+            }
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
@@ -134,9 +146,13 @@ export default function CreateHomeOnboardingScreen() {
                         )}
                     </View>
 
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>Create First Home</Text>
+                    <Text style={[titleStyle, { color: theme.colors.text }]}>
+                        {addingProperty ? 'Add Property' : 'Create First Home'}
+                    </Text>
                     <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                        Add your home so HomeOS can finish setting up your account.
+                        {addingProperty
+                            ? 'Add another property to this HomeOS account. Each property keeps its own rooms, equipment, documents, and service history.'
+                            : 'Add your home so HomeOS can finish setting up your account.'}
                     </Text>
 
                     <ThemedCard>
@@ -244,12 +260,14 @@ export default function CreateHomeOnboardingScreen() {
 
                         {!verifiedAddress && (
                             <Text style={[addressHelpStyle, { color: theme.colors.mutedText }]}>
-                                To enable Create Home, select an address result and then choose Use This Address.
+                                To enable {addingProperty ? 'Add Property' : 'Create Home'}, select an address result and then choose Use This Address.
                             </Text>
                         )}
 
                         <ThemedButton
-                            title={submitting ? 'Creating home...' : 'Create Home'}
+                            title={submitting
+                                ? (addingProperty ? 'Adding property...' : 'Creating home...')
+                                : (addingProperty ? 'Add Property' : 'Create Home')}
                             disabled={submitting || !verifiedAddress}
                             onPress={createHome}
                             style={{ marginTop: 18 }}

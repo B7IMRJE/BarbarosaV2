@@ -70,6 +70,84 @@ assert(
     new Set(resolvedSemanticVisuals.map((visual) => visual.asset.source)).size === resolvedSemanticVisuals.length,
     'Every named review concept must have distinct bundled artwork.'
 );
+
+const expectedComponentVisualGroups: Readonly<Record<string, readonly string[]>> = {
+    'angle-stop': [
+        'Bathroom Sink Hot Angle Stop', 'Bathroom Sink Cold Angle Stop',
+        'Kitchen Hot Angle Stop', 'Kitchen Cold Angle Stop',
+        'Toilet Shutoff / Angle Stop', 'Dishwasher Shutoff Valve',
+        'Refrigerator Shutoff Valve', 'Instant Hot Shutoff Valve',
+        'RO Feed Shutoff Valve', 'Water Heater Shutoff Valve',
+    ],
+    'supply-line': [
+        'Bathroom Sink Hot Supply Line', 'Bathroom Sink Cold Supply Line',
+        'Kitchen Hot Supply Line', 'Kitchen Cold Supply Line',
+        'Toilet Supply Line', 'Dishwasher Supply Line', 'Instant Hot Supply Line',
+        'Washer Hot Supply Line', 'Washer Cold Supply Line',
+    ],
+    'p-trap': ['Bathroom Sink P-Trap', 'Kitchen Sink P-Trap'],
+    'sink-pop-up-drain': ['Bathroom Sink Pop-Up / Drain Assembly'],
+    'shower-valve': ['Shower Valve'],
+    'shower-cartridge': ['Shower Cartridge'],
+    'shower-trim': ['Shower Trim'],
+    'tub-shower-trim': ['Tub & Shower Trim'],
+    'tub-shower-diverter': ['Tub / Shower Diverter'],
+    'tub-waste-overflow': ['Tub Waste and Overflow'],
+    'toilet-fill-valve': ['Toilet Fill Valve'],
+    'toilet-flapper': ['Toilet Flapper'],
+    'toilet-tank-bolts': ['Toilet Tank Bolts'],
+    'toilet-wax-ring': ['Toilet Wax Ring'],
+    'toilet-seat': ['Toilet Seat'],
+    'bidet-seat': ['Bidet Seat'],
+    'refrigerator-water-line': ['Refrigerator Water Line'],
+    'basket-strainer': ['Kitchen Basket Strainer'],
+    'disposal-flange': ['Disposal Flange'],
+    'dishwasher-drain-hose': ['Dishwasher Drain Hose'],
+    'dishwasher-air-gap': ['Dishwasher Air Gap'],
+    'refrigerator-filter': ['Refrigerator Water Filter'],
+    'ro-sediment-filter': ['RO Sediment Filter'],
+    'ro-carbon-prefilter': ['RO Carbon Pre-Filter'],
+    'ro-membrane': ['RO Membrane'],
+    'ro-post-carbon-filter': ['RO Post-Carbon Filter'],
+    'ro-filter-canisters': ['RO Filter Canisters'],
+    'ro-storage-tank': ['RO Storage Tank'],
+    'water-heater-connections': [
+        'Water Heater Cold Water Connection', 'Water Heater Hot Water Connection',
+    ],
+    'tpr-valve': ['TPR Valve'],
+    'tpr-discharge-line': ['TPR Discharge Line'],
+    'water-heater-drain-pan': ['Water Heater Drain Pan'],
+    'water-heater-drain-valve': ['Water Heater Sediment / Drain Valve'],
+    'water-heater-venting': ['Water Heater Venting'],
+    'water-heater-gas-connection': ['Water Heater Gas Connection'],
+    'water-heater-recirculation-line': ['Water Heater Recirculation Line'],
+    'tankless-isolation-valves': ['Tankless Isolation Valve Set'],
+    'tankless-condensate-drain': ['Tankless Condensate Drain'],
+    'washer-valves': ['Washer Hot Valve', 'Washer Cold Valve'],
+    'receptacle-outlet': ['Receptacle / Outlet'],
+    'gfci-afci-protection': ['GFCI / AFCI Protection'],
+    'switch-dimmer': ['Switch / Dimmer'],
+    'dedicated-circuit': ['Dedicated Electrical Circuit'],
+    'thermostatic-shower-valve': ['Thermostatic Shower Valve'],
+    'toilet-drain': ['Toilet Drain'],
+};
+
+const expectedComponentLabels = Object.values(expectedComponentVisualGroups).flat();
+
+assert(expectedComponentLabels.length === 65, 'the complete Component Card catalog must stay under visual coverage.');
+assert(
+    new Set(expectedComponentLabels).size === expectedComponentLabels.length,
+    'the Component Card visual coverage list must not contain duplicate names.'
+);
+
+Object.entries(expectedComponentVisualGroups).forEach(([expectedKey, labels]) => {
+    labels.forEach((label) => {
+        const visual = resolveHomeOSSemanticVisual(label, 'equipment');
+        assert(visual?.key === expectedKey, `${label} must resolve to its approved component cutout.`);
+        assert(Boolean(visual.asset.source), `${label} must never fall through to a generic Component icon.`);
+    });
+});
+
 assert(
     !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),
     'A custom or unknown record must remain eligible for the conservative generic fallback.'
