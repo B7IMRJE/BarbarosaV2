@@ -251,6 +251,14 @@ assert(
     resolveHomeOSCardSemanticVisual('My utility equipment', 'equipment', 'garage:water_heater')?.key === 'water-heater',
     'a container instance must resolve artwork from its permanent Deck key before its editable name.'
 );
+assert(
+    resolveHomeOSCardSemanticVisual(
+        'Left stop',
+        'equipment',
+        'bathroom:bathroom_sink_hot_angle_stop',
+    )?.key === 'angle-stop',
+    'a reconciled legacy component must use the realistic master Deck cutout even when its saved display name is generic.'
+);
 
 assert(
     !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),
