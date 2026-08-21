@@ -144,6 +144,40 @@ export async function linkHomeEmergencyToServiceRequest(input: {
     };
 }
 
+export async function ensureHomeEmergencyForServiceRequest(serviceRequestId: string) {
+    const requestId = serviceRequestId.trim();
+
+    if (!requestId) {
+        throw new Error('Service request id is required.');
+    }
+
+    const { data, error } = await supabase.rpc('ensure_home_emergency_for_service_request', {
+        p_service_request_id: requestId,
+    });
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    return data;
+}
+
+export async function resolveHomeEmergencyAndLinkedRequest(input: {
+    emergencyId: string;
+    propertyId: string;
+    history: unknown;
+}) {
+    const { error } = await supabase.rpc('resolve_home_emergency_and_linked_request', {
+        p_emergency_id: input.emergencyId,
+        p_property_id: input.propertyId,
+        p_history: input.history,
+    });
+
+    if (error) {
+        throw new Error(error.message);
+    }
+}
+
 export async function requestHomeownerServiceRequestUpdate(
     serviceRequestId: string
 ): Promise<ServiceRequestUpdateResult> {

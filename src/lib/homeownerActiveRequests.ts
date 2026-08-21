@@ -112,7 +112,7 @@ export function buildHomeownerActiveRequestTrackers(
     const activeRequests = requests.filter(isActiveHomeownerServiceRequest);
 
     return activeRequests
-        .map((request) => {
+        .map((request): HomeownerActiveRequestTracker | null => {
             const timeline = (timelinesByRequestId[request.id] || [])
                 .filter((event) => normalizeText(event.audience) === 'homeowner')
                 .sort((first, second) => getTimeValue(first.created_at) - getTimeValue(second.created_at));
@@ -127,6 +127,10 @@ export function buildHomeownerActiveRequestTrackers(
                 firstText(request.arrival_window_end, readEventMetadataText(latestEvent, 'arrival_window_end'))
             );
             const etaLabel = firstText(request.eta_range, readEventMetadataText(latestEvent, 'eta_range'));
+
+            if (isTerminalHomeownerRequestState(request.status, latestEvent?.event_type)) {
+                return null;
+            }
 
             return {
                 request,
@@ -150,6 +154,7 @@ export function buildHomeownerActiveRequestTrackers(
                 canCancel: canHomeownerCancelRequest(request),
             };
         })
+        .filter((tracker): tracker is HomeownerActiveRequestTracker => tracker !== null)
         .sort(compareHomeownerActiveRequestTrackers)
         .map((tracker, _index, allTrackers) => ({
             ...tracker,
@@ -229,6 +234,19 @@ export function isTerminalHomeownerRequestStatus(status?: string | null) {
         'resolved',
         'void',
     ].includes(normalized);
+}
+
+/**
+ * Events are the compatibility fallback for requests completed by older closeout
+ * paths that recorded the homeowner update without updating the request row.
+ */
+export function isTerminalHomeownerRequestState(status?: string | null, latestEventType?: string | null) {
+    return isTerminalHomeownerRequestStatus(status) || [
+        'work_completed',
+        'work_completed_rating_requested',
+        'request_cancelled',
+        'appointment_cancelled',
+    ].includes(normalizeText(latestEventType));
 }
 
 export function getHomeownerFacingStatusLabel(requestStatus?: string | null, latestEventType?: string | null) {

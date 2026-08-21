@@ -240,7 +240,16 @@ export function scorePlumbingCategories(items: HomeHealthItem[]) {
 export function hasActiveEmergency(emergencies: HomeHealthEmergency[]) {
     return emergencies.some((emergency) => {
         const status = String(emergency.status || '').trim().toLowerCase();
-        return status !== 'resolved';
+        return ![
+            'resolved',
+            'cancelled',
+            'canceled',
+            'closed',
+            'complete',
+            'completed',
+            'done',
+            'void',
+        ].includes(status);
     });
 }
 

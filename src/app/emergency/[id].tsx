@@ -25,6 +25,7 @@ import {
     getServiceRequestDisplayCode,
     linkHomeEmergencyToServiceRequest,
     requestHomeownerServiceRequestUpdate,
+    resolveHomeEmergencyAndLinkedRequest,
 } from '../../lib/homeServiceRequests';
 import {
     HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS,
@@ -493,30 +494,24 @@ export default function EmergencyDetailScreen() {
             return;
         }
 
-        const now = new Date().toISOString();
         const nextHistory = [
             ...normalizeHistory(emergency.history),
             makeHistoryEntry('status', 'Marked resolved by homeowner.'),
         ];
 
-        const { error } = await supabase
-            .from('home_emergencies')
-            .update({
-                status: 'Resolved',
-                resolved_at: now,
-                updated_at: now,
+        try {
+            await resolveHomeEmergencyAndLinkedRequest({
+                emergencyId: emergency.id,
+                propertyId: activeProperty.propertyId,
                 history: nextHistory,
-            })
-            .eq('id', emergency.id)
-            .eq('property_id', activeProperty.propertyId);
-
-        setSaving(false);
-
-        if (error) {
-            setMessage(`Status update failed: ${error.message}`);
+            });
+        } catch (error) {
+            setSaving(false);
+            setMessage(`Status update failed: ${getErrorMessage(error)}`);
             return;
         }
 
+        setSaving(false);
         setMessage('Emergency marked resolved.');
         await loadEmergency({ preserveMessages: true });
     }

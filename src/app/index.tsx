@@ -20,6 +20,7 @@ import {
 } from '../lib/activeProperty';
 import {
   createHomeownerServiceRequest,
+  ensureHomeEmergencyForServiceRequest,
   formatServiceRequestReference,
   requestHomeownerServiceRequestUpdate,
 } from '../lib/homeServiceRequests';
@@ -76,6 +77,7 @@ import { clearSessionActivity } from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
+import PropertyLandingScreen from '../features/property-navigation/PropertyLandingScreen';
 
 type PreferredProvider = {
   companyId: string;
@@ -778,6 +780,16 @@ export function HomeServicesScreen({
       setSubmittingServiceRequest(false);
       setServiceRequestMessage('Could not confirm service request: Supabase did not return a service_request_id.');
       return;
+    }
+
+    if (serviceRequestType === 'emergency') {
+      try {
+        await ensureHomeEmergencyForServiceRequest(confirmedRequest.id);
+      } catch (error) {
+        setSubmittingServiceRequest(false);
+        setServiceRequestMessage(`${formatServiceRequestReference(confirmedRequest)} was sent, but it could not be added to Emergency Center: ${getErrorMessage(error)}`);
+        return;
+      }
     }
 
     try {
@@ -1593,6 +1605,8 @@ export default function HomeScreen() {
     jobId?: string | string[];
   }>();
   const providerRouteActive = hasProviderModeRouteSignal(routeParams);
+
+  if (!providerRouteActive) return <PropertyLandingScreen />;
 
   return <HomeServicesScreen showPropertyDestinations={shouldShowPropertyDestinations(providerRouteActive)} />;
 }
