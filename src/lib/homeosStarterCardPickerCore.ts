@@ -101,6 +101,21 @@ export function homeOSStarterCardForInstalledContainer(
 }
 
 /**
+ * Resolves any installed item to its one unambiguous canonical Deck card.
+ * Detail routes use this for nested parents whose own presentation role is a
+ * component rather than a top-level container.
+ */
+export function homeOSStarterCardForInstalledItem(
+    cards: readonly HomeOSStarterCardChoice[],
+    item: {
+        starter_template_key?: string | null;
+        name?: string | null;
+    },
+) {
+    return starterCardForInstalledRecord(cards, item);
+}
+
+/**
  * Reconciles one saved legacy component with a compatible Super Admin Deck
  * card. Exact permanent keys win. Older shortened keys, names, or aliases are
  * accepted only when they identify exactly one descendant of the parent

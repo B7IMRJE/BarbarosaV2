@@ -72,6 +72,27 @@ export function resolveHomeItemComponentDeck<T extends HomeItemHierarchyRecord>(
     return descendantsOf(hierarchy, assemblyKey).sort(compareRows);
 }
 
+/**
+ * Returns only the immediate children of an item. Item-detail screens use this
+ * view so each nested item owns the next level of the recursive hierarchy,
+ * while area projections can continue to use the transitive deck above.
+ */
+export function resolveHomeItemDirectComponentDeck<T extends HomeItemHierarchyRecord>(
+    rows: readonly T[],
+    assembly: T
+): T[] {
+    if (!isSavedActiveRow(assembly)) return [];
+
+    const hierarchy = resolveHierarchy([...rows, assembly]);
+    const assemblyKey = rowKey(assembly);
+    const childKeys = hierarchy.childrenByParent.get(assemblyKey) || [];
+
+    return childKeys
+        .map((key) => hierarchy.rowByKey.get(key))
+        .filter((child): child is T => Boolean(child))
+        .sort(compareRows);
+}
+
 /** Returns area-level cards after removing every row claimed beneath another assembly. */
 export function resolveHomeItemAreaAssemblyDeck<T extends HomeItemHierarchyRecord>(
     rows: readonly T[],

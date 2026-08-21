@@ -3,6 +3,7 @@ import {
     homeOSStarterCardGroups,
     homeOSStarterCardForInstalledContainer,
     homeOSStarterCardForInstalledComponent,
+    homeOSStarterCardForInstalledItem,
     homeOSStarterComponentCardsForContainer,
 } from './homeosStarterCardPickerCore';
 import type { HomeOSStarterCardChoice } from './homeosStarterCatalog';
@@ -82,6 +83,13 @@ assert(
         { name: 'Bathroom Faucet', starter_template_key: null },
     )?.templateKey === 'bathroom:bathroom_sink_faucet',
     'A legacy unkeyed Bathroom Faucet must inherit the one compatible Super Admin Deck identity beneath Bathroom Vanity.'
+);
+assert(
+    homeOSStarterCardForInstalledItem(
+        vanityDeck,
+        { name: 'Bathroom Faucet', starter_template_key: null },
+    )?.templateKey === 'bathroom:bathroom_sink_faucet',
+    'A nested item parent must resolve to its canonical Deck identity before its children are rendered.'
 );
 assert(
     homeOSStarterCardForInstalledComponent(
