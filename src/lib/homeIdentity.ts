@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { requireActivePropertyMembership } from './activeProperty';
 import {
     buildDefaultStarterHomePlan,
     createMissingStarterHomeItems,
@@ -114,18 +115,12 @@ export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
 ];
 
 export async function loadActiveHomeIdentity() {
-    const { data, error } = await supabase.rpc('get_my_active_home_identity');
+    const activeProperty = await requireActivePropertyMembership();
+    const identity = await loadHomeIdentityForProperty(activeProperty.propertyId, {
+        canEdit: activeProperty.membershipRole.trim().toUpperCase() === 'OWNER',
+    });
 
-    if (error) {
-        logHomeIdentityRpcError('Load active home identity failed', error);
-        throw new Error(`Could not load your home information: ${error.message}`);
-    }
-
-    const row = firstRow<HomeIdentityRow>(data);
-
-    if (!row) return null;
-
-    const identity = normalizeHomeIdentity(row);
+    if (!identity) return null;
 
     try {
         const [profileDetails, accessDetails] = await Promise.all([
@@ -208,20 +203,31 @@ export async function createFirstHomeIdentity(input: HomeIdentityInput) {
         throw new Error('We could not confirm your home was created. Please try again.');
     }
 
-    await updateMyHomeStructureAccess(propertyId, {
-        storyCount: input.storyCount,
-        gateCode: input.gateCode,
-    });
+    await finishCreatedHomeIdentity(propertyId, input, !userError ? user?.id : null);
 
-    if (!userError && user?.id) {
-        await createMissingStarterHomeItems(
-            {
-                userId: user.id,
-                propertyId,
-            },
-            buildDefaultStarterHomePlan(input.propertyType)
-        );
+    return propertyId;
+}
+
+export async function createAdditionalHomeIdentity(input: HomeIdentityInput) {
+    const {
+        data: { user },
+        error: userError,
+    } = await supabase.auth.getUser();
+    const { data, error } = await supabase.rpc('create_homeowner_property', buildHomeIdentityRpcPayload(input));
+
+    if (error) {
+        logHomeIdentityRpcError('Create additional home identity failed', error);
+        throw new Error(`We could not add your property right now: ${error.message}`);
     }
+
+    const row = firstRow<PropertyRpcRow>(data);
+    const propertyId = String(row?.property_id || '').trim();
+
+    if (!propertyId) {
+        throw new Error('We could not confirm your property was added. Please try again.');
+    }
+
+    await finishCreatedHomeIdentity(propertyId, input, !userError ? user?.id : null);
 
     return propertyId;
 }
@@ -315,6 +321,27 @@ function buildHomeIdentityRpcPayload({ name, propertyType, address }: HomeIdenti
         p_google_place_id: address.googlePlaceId,
         p_property_type: propertyType,
     };
+}
+
+async function finishCreatedHomeIdentity(
+    propertyId: string,
+    input: HomeIdentityInput,
+    userId?: string | null
+) {
+    await updateMyHomeStructureAccess(propertyId, {
+        storyCount: input.storyCount,
+        gateCode: input.gateCode,
+    });
+
+    if (userId) {
+        await createMissingStarterHomeItems(
+            {
+                userId,
+                propertyId,
+            },
+            buildDefaultStarterHomePlan(input.propertyType)
+        );
+    }
 }
 
 function normalizeHomeIdentity(row: HomeIdentityRow): HomeIdentity {

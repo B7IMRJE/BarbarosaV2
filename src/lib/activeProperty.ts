@@ -1,5 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { validateProviderModeAccess } from './providerMode';
+import { resolveSelectedActivePropertyId } from './activePropertySelection';
 
 export type ActivePropertyMembership = {
     userId: string;
@@ -15,10 +17,19 @@ export type ActivePropertyResolutionErrorCode =
     | 'lookup_failed';
 
 type PropertyMembershipRow = {
+    id?: string | null;
     property_id?: string | null;
     role?: string | null;
     status?: string | null;
+    created_at?: string | null;
 };
+
+export type HomeownerPropertyMembership = ActivePropertyMembership & {
+    membershipId: string;
+    createdAt: string | null;
+};
+
+const ACTIVE_PROPERTY_STORAGE_PREFIX = 'barbarosa:homeos:active-property';
 
 export class ActivePropertyResolutionError extends Error {
     code: ActivePropertyResolutionErrorCode;
@@ -65,45 +76,125 @@ export async function requireActivePropertyMembership(options: {
         };
     }
 
-    const { data, error } = await supabase
-        .from('property_memberships')
-        .select('property_id, role, status')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true })
-        .limit(2);
+    const memberships = await loadActivePropertyMembershipsForUser(user.id);
 
-    if (error) {
-        throw new ActivePropertyResolutionError('lookup_failed', 'Could not confirm your active home.');
-    }
-
-    const rows = (data || []) as PropertyMembershipRow[];
-
-    if (rows.length === 0) {
+    if (memberships.length === 0) {
         throw new ActivePropertyResolutionError('no_active_property', 'Finish creating your first home to continue.');
     }
 
-    if (rows.length > 1) {
-        throw new ActivePropertyResolutionError(
-            'ambiguous_active_property',
-            'More than one active home is assigned to this account. Michael needs to review this before continuing.'
-        );
-    }
+    const storedPropertyId = await readStoredActivePropertyId(user.id);
+    const selectedPropertyId = resolveSelectedActivePropertyId(memberships, storedPropertyId);
+    const selectedMembership = memberships.find((membership) => membership.propertyId === selectedPropertyId)
+        || memberships[0];
 
-    const row = rows[0];
-    const propertyId = String(row.property_id || '').trim();
-
-    if (!propertyId) {
-        throw new ActivePropertyResolutionError('lookup_failed', 'Could not confirm your active home.');
+    if (storedPropertyId !== selectedMembership.propertyId) {
+        await storeActivePropertyId(user.id, selectedMembership.propertyId);
     }
 
     return {
         userId: user.id,
-        propertyId,
-        membershipRole: String(row.role || '').trim(),
-        membershipStatus: String(row.status || '').trim(),
+        propertyId: selectedMembership.propertyId,
+        membershipRole: selectedMembership.membershipRole,
+        membershipStatus: selectedMembership.membershipStatus,
     };
+}
+
+export async function listActivePropertyMemberships(): Promise<{
+    userId: string;
+    memberships: HomeownerPropertyMembership[];
+    selectedPropertyId: string | null;
+}> {
+    const {
+        data: { user },
+        error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+        throw new ActivePropertyResolutionError('not_authenticated', 'You must be logged in.');
+    }
+
+    const memberships = await loadActivePropertyMembershipsForUser(user.id);
+    const storedPropertyId = await readStoredActivePropertyId(user.id);
+    const selectedPropertyId = memberships.length
+        ? resolveSelectedActivePropertyId(memberships, storedPropertyId)
+        : null;
+
+    if (selectedPropertyId && storedPropertyId !== selectedPropertyId) {
+        await storeActivePropertyId(user.id, selectedPropertyId);
+    }
+
+    return { userId: user.id, memberships, selectedPropertyId };
+}
+
+export async function selectActiveProperty(propertyId: string) {
+    const cleanPropertyId = propertyId.trim();
+
+    if (!cleanPropertyId) {
+        throw new ActivePropertyResolutionError('lookup_failed', 'Choose a property to continue.');
+    }
+
+    const { userId, memberships } = await listActivePropertyMemberships();
+    const membership = memberships.find((candidate) => candidate.propertyId === cleanPropertyId);
+
+    if (!membership) {
+        throw new ActivePropertyResolutionError('lookup_failed', 'You do not have access to that property.');
+    }
+
+    await storeActivePropertyId(userId, membership.propertyId);
+
+    return membership;
+}
+
+async function loadActivePropertyMembershipsForUser(userId: string) {
+    const { data, error } = await supabase
+        .from('property_memberships')
+        .select('id, property_id, role, status, created_at')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(100);
+
+    if (error) {
+        throw new ActivePropertyResolutionError('lookup_failed', 'Could not load your properties.');
+    }
+
+    return ((data || []) as PropertyMembershipRow[])
+        .map((row): HomeownerPropertyMembership | null => {
+            const propertyId = String(row.property_id || '').trim();
+
+            if (!propertyId) return null;
+
+            return {
+                userId,
+                propertyId,
+                membershipId: String(row.id || '').trim(),
+                membershipRole: String(row.role || '').trim(),
+                membershipStatus: String(row.status || '').trim(),
+                createdAt: row.created_at || null,
+            };
+        })
+        .filter((membership): membership is HomeownerPropertyMembership => Boolean(membership));
+}
+
+function activePropertyStorageKey(userId: string) {
+    return `${ACTIVE_PROPERTY_STORAGE_PREFIX}:${userId}`;
+}
+
+async function readStoredActivePropertyId(userId: string) {
+    try {
+        return await AsyncStorage.getItem(activePropertyStorageKey(userId));
+    } catch {
+        return null;
+    }
+}
+
+async function storeActivePropertyId(userId: string, propertyId: string) {
+    try {
+        await AsyncStorage.setItem(activePropertyStorageKey(userId), propertyId);
+    } catch {
+        // Selection still works for this render if device storage is unavailable.
+    }
 }
 
 export function isActivePropertyResolutionError(error: unknown): error is ActivePropertyResolutionError {

@@ -34,7 +34,7 @@ export const propertyLandingWorkflowDestinations = [
     {
         key: 'emergency',
         title: 'Emergency Center',
-        description: 'View active emergency updates and report an urgent issue.',
+        description: 'Urgent requests and updates.',
         actionLabel: 'Open Emergency Center',
         accessibilityLabel: 'Open Emergency Center',
         route: '/emergency',
@@ -43,7 +43,7 @@ export const propertyLandingWorkflowDestinations = [
     {
         key: 'requests',
         title: 'Service Requests',
-        description: 'Review regular requests, leads, and active job updates.',
+        description: 'Requests, leads, and active jobs.',
         actionLabel: 'Open Service Requests',
         accessibilityLabel: 'Open Service Requests',
         route: '/services',
@@ -52,7 +52,7 @@ export const propertyLandingWorkflowDestinations = [
     {
         key: 'maintenance',
         title: 'Maintenance Center',
-        description: 'Review maintenance work, history, and upcoming care.',
+        description: 'History and upcoming care.',
         actionLabel: 'Open Maintenance Center',
         accessibilityLabel: 'Open Maintenance Center',
         route: '/maintenance',
@@ -61,7 +61,7 @@ export const propertyLandingWorkflowDestinations = [
     {
         key: 'connections',
         title: 'Company Connections',
-        description: 'Review connected companies and pending access requests.',
+        description: 'Connected service companies.',
         actionLabel: 'Open Connections',
         accessibilityLabel: 'Open Connections',
         route: '/connections',

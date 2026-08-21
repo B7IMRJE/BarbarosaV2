@@ -189,6 +189,7 @@ export function MainDestinationCard({
     visualContentFit,
     actionLabel,
     accentColor,
+    size = 'destination',
     style,
 }: ContainerPressProps & {
     title: string;
@@ -198,6 +199,7 @@ export function MainDestinationCard({
     visualContentFit?: 'cover' | 'contain';
     actionLabel?: string;
     accentColor?: ColorValue;
+    size?: 'destination' | 'compact';
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
@@ -211,8 +213,8 @@ export function MainDestinationCard({
             style={[
                 foundation.surface,
                 {
-                    minHeight: foundation.grid.destinationMinimumHeight,
-                    padding: foundation.spacing.regular,
+                    minHeight: size === 'compact' ? scaleIcon(220) : foundation.grid.destinationMinimumHeight,
+                    padding: size === 'compact' ? foundation.spacing.compact : foundation.spacing.regular,
                     gap: foundation.spacing.compact,
                     overflow: 'hidden',
                 },
@@ -224,12 +226,12 @@ export function MainDestinationCard({
                 label={title}
                 fallbackIcon={fallbackIcon}
                 fallbackContext="area"
-                size="destination"
+                size={size === 'compact' ? 'compact' : 'destination'}
                 contentFit={visualContentFit}
             />
             <View style={{ flex: 1, width: '100%', gap: foundation.spacing.compact }}>
                 <Text selectable numberOfLines={2} style={foundation.typography.destinationTitle}>{title}</Text>
-                {description ? <Text selectable numberOfLines={3} style={foundation.typography.body}>{description}</Text> : null}
+                {description ? <Text selectable numberOfLines={size === 'compact' ? 2 : 3} style={foundation.typography.body}>{description}</Text> : null}
                 {actionLabel ? (
                     <Text
                         selectable

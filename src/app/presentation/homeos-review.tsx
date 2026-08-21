@@ -6,6 +6,7 @@ import {
     HomeOSCardVisual,
     MainDestinationCard,
 } from '../../components/homeos/HomeOSVisualFoundation';
+import HomeOSStatusLegend from '../../components/homeos/HomeOSStatusLegend';
 import ThemedButton from '../../components/theme/ThemedButton';
 import {
     HOME_OS_REVIEW_INITIAL_STATE,
@@ -50,6 +51,20 @@ export default function HomeOSReviewPresentation() {
         minimumItemWidth: scaleIcon(220),
         maximumItemWidth: scaleIcon(460),
     });
+    const activityColumns = resolveHomeOSContainerGrid({
+        viewportWidth,
+        contentWidth,
+        minimumItemWidth: scaleIcon(152),
+        gap,
+        maximumColumns: 4,
+    });
+    const activityCardWidth = resolveHomeOSContainerItemWidth({
+        contentWidth,
+        columns: activityColumns,
+        gap,
+        minimumItemWidth: scaleIcon(152),
+        maximumItemWidth: scaleIcon(260),
+    });
 
     function dispatch(action: HomeOSReviewAction) {
         setReviewState((current) => transitionHomeOSReview(current, action));
@@ -90,7 +105,12 @@ export default function HomeOSReviewPresentation() {
                 ) : null}
 
                 {reviewState.level === 'landing' ? (
-                    <LandingReview cardWidth={cardWidth} contentWidth={contentWidth} gap={gap} onOpenHome={() => dispatch({ type: 'open_home' })} />
+                    <LandingReview
+                        cardWidth={cardWidth}
+                        activityCardWidth={activityCardWidth}
+                        gap={gap}
+                        onOpenHome={() => dispatch({ type: 'open_home' })}
+                    />
                 ) : null}
 
                 {reviewState.level === 'home' ? (
@@ -146,43 +166,47 @@ export default function HomeOSReviewPresentation() {
 
 function LandingReview({
     cardWidth,
-    contentWidth,
+    activityCardWidth,
     gap,
     onOpenHome,
 }: {
     cardWidth: number;
-    contentWidth: number;
+    activityCardWidth: number;
     gap: number;
     onOpenHome: () => void;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
-    const primaryWidth = Math.min(contentWidth, scaleIcon(640));
 
     return (
         <>
-            <View style={[foundation.surface, { minHeight: scaleIcon(156), padding: foundation.spacing.comfortable, overflow: 'hidden', justifyContent: 'center' }]}>
-                <Text pointerEvents="none" accessible={false} style={{ position: 'absolute', right: foundation.spacing.regular, bottom: scaleIcon(-10), fontSize: scaleIcon(112), opacity: 0.16 }}>🏠</Text>
-                <View style={{ maxWidth: '78%', gap: foundation.spacing.compact }}>
-                    <Text selectable style={[foundation.typography.label, { color: theme.colors.primary, textTransform: 'uppercase' }]}>Your Property</Text>
-                    <Text selectable style={[foundation.typography.destinationTitle, { fontSize: scaleFont(30), lineHeight: scaleFont(36) }]}>Oak Street Home</Text>
-                    <Text selectable style={foundation.typography.body}>100 Oak Street, Austin, TX</Text>
+            <View style={[foundation.surface, { padding: foundation.spacing.comfortable, gap: foundation.spacing.regular, overflow: 'hidden' }]}>
+                <Text pointerEvents="none" accessible={false} style={{ position: 'absolute', right: foundation.spacing.regular, top: scaleIcon(42), fontSize: scaleIcon(108), opacity: 0.08 }}>🏠</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: foundation.spacing.regular }}>
+                    <View style={{ flex: 1, gap: foundation.spacing.compact }}>
+                        <Text selectable style={[foundation.typography.label, { color: theme.colors.primary, textTransform: 'uppercase' }]}>HomeOS</Text>
+                        <Text selectable style={[foundation.typography.destinationTitle, { fontSize: scaleFont(30), lineHeight: scaleFont(36) }]}>Lupe&apos;s Properties</Text>
+                    </View>
+                    <ThemedButton title="Sign Out" variant="ghost" disabled style={{ minHeight: scaleIcon(44), paddingHorizontal: scaleIcon(12), paddingVertical: scaleIcon(8) }} />
                 </View>
+                <Text selectable style={foundation.typography.body}>Choose a property to open its rooms, equipment, documents, requests, and service history.</Text>
+                <ThemedButton title="Add Property" variant="secondary" disabled style={{ alignSelf: 'flex-start', minHeight: scaleIcon(46), paddingHorizontal: scaleIcon(18) }} />
+                <MainDestinationCard
+                    title="Oak Street Home"
+                    description="100 Oak Street, Austin, TX"
+                    visual={{ source: require('../../../assets/homeos/destinations/home.png') }}
+                    fallbackIcon="🏠"
+                    visualContentFit="contain"
+                    actionLabel="Open selected property"
+                    accentColor={theme.colors.primary}
+                    accessibilityLabel="Review Oak Street Home property card"
+                    onPress={onOpenHome}
+                    style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                />
             </View>
 
-            <MainDestinationCard
-                title="My Home"
-                description="Rooms, indoor areas, and everything outside your home."
-                visual={{ source: require('../../../assets/homeos/destinations/home.png') }}
-                fallbackIcon="🏠"
-                visualContentFit="contain"
-                actionLabel="Open My Home"
-                accessibilityLabel="Review My Home card"
-                onPress={onOpenHome}
-                style={{ width: primaryWidth, minWidth: primaryWidth, maxWidth: primaryWidth }}
-            />
-
             <View style={{ gap: foundation.spacing.compact }}>
+                <HomeOSStatusLegend />
                 <Text selectable style={foundation.typography.containerTitle}>Home activity</Text>
                 <Text selectable style={foundation.typography.body}>These workflow cards are intentionally read-only in this data-free review.</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap }}>
@@ -192,8 +216,9 @@ function LandingReview({
                             title={card.title}
                             description={card.description}
                             fallbackIcon={card.fallbackIcon}
+                            size="compact"
                             accessibilityLabel={`${card.title} data-free preview only`}
-                            style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                            style={{ width: activityCardWidth, minWidth: activityCardWidth, maxWidth: activityCardWidth }}
                         />
                     ))}
                 </View>
