@@ -11,6 +11,7 @@ import {
     isPortableLaundryAreaName,
     laundryAreaLocationActionLabel,
     laundryAreaPlacementText,
+    normalizePropertyAreaName,
     propertyAreaDetailRouteParams,
     propertyAreaPlacementText,
     propertyAreaScopeFromRoute,
@@ -21,12 +22,45 @@ import {
     resolveHomeOSContainerGrid,
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
+import { loadProviderHomeItemsForNavigation } from '../../lib/providerHomeItems';
+import {
+    providerModePath,
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../lib/providerMode';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
 export default function PropertyAreaScreen() {
-    const { scope: rawScope } = useLocalSearchParams<{ scope?: string }>();
+    const routeParams = useLocalSearchParams<{
+        scope?: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
+    }>();
+    const rawScope = routeParams.scope;
+    const providerModeContext = useMemo(() => readProviderModeParams({
+        providerMode: routeParams.providerMode,
+        companyId: routeParams.companyId,
+        propertyId: routeParams.propertyId,
+        returnTo: routeParams.returnTo,
+        serviceRequestId: routeParams.serviceRequestId,
+        scheduleSlotId: routeParams.scheduleSlotId,
+        jobId: routeParams.jobId,
+    }), [
+        routeParams.providerMode,
+        routeParams.companyId,
+        routeParams.propertyId,
+        routeParams.returnTo,
+        routeParams.serviceRequestId,
+        routeParams.scheduleSlotId,
+        routeParams.jobId,
+    ]);
     const routeParamsReady = useHydratedRouteParamsReady();
     const scope = propertyAreaScopeFromRoute(routeParamsReady ? rawScope : undefined);
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -62,24 +96,36 @@ export default function PropertyAreaScreen() {
         setMessage('');
 
         try {
-            const property = await requireActivePropertyMembership();
-            const { data, error } = await supabase
-                .from('home_items')
-                .select('id, name, system, area_scope, parent_area, area_placement_state, archived')
-                .eq('property_id', property.propertyId)
-                .ilike('category', 'Area')
-                .or('archived.eq.false,archived.is.null')
-                .order('name');
+            const property = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
 
-            if (error) throw error;
-            setAreas((data || []) as PropertyAreaRecord[]);
+            if (providerModeContext) {
+                const rows = await loadProviderHomeItemsForNavigation(
+                    providerModeContext,
+                    property.membershipRole,
+                );
+                setAreas(rows.filter((row) => normalizePropertyAreaName(row.category) === 'area') as PropertyAreaRecord[]);
+            } else {
+                const { data, error } = await supabase
+                    .from('home_items')
+                    .select('id, name, system, area_scope, parent_area, area_placement_state, archived')
+                    .eq('property_id', property.propertyId)
+                    .ilike('category', 'Area')
+                    .or('archived.eq.false,archived.is.null')
+                    .order('name');
+
+                if (error) throw error;
+                setAreas((data || []) as PropertyAreaRecord[]);
+            }
         } catch (error) {
             setAreas([]);
             setMessage(activePropertyErrorMessage(error));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [providerModeContext]);
 
     useFocusEffect(useCallback(() => {
         void load();
@@ -97,7 +143,10 @@ export default function PropertyAreaScreen() {
     function openArea(area: PropertyAreaRecord) {
         router.push({
             pathname: '/home/area/[area]',
-            params: propertyAreaDetailRouteParams(area),
+            params: {
+                ...propertyAreaDetailRouteParams(area),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
+            },
         } as never);
     }
 
@@ -133,7 +182,7 @@ export default function PropertyAreaScreen() {
                     onPress={() => openArea(area)}
                     style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
                 />
-                {portableLaundry && !ambiguousPortableLaundry ? (
+                {!providerModeContext && portableLaundry && !ambiguousPortableLaundry ? (
                     <ThemedButton
                         title={laundryAreaLocationActionLabel(area)}
                         variant="secondary"
@@ -163,7 +212,9 @@ export default function PropertyAreaScreen() {
                         title="‹ Back to My Home"
                         variant="secondary"
                         accessibilityLabel="Back to My Home"
-                        onPress={() => router.replace('/home' as never)}
+                        onPress={() => router.replace((providerModeContext
+                            ? providerModePath('/home', providerModeContext)
+                            : '/home') as never)}
                         style={{ alignSelf: 'flex-start' }}
                     />
                 ) : null}
@@ -180,7 +231,7 @@ export default function PropertyAreaScreen() {
                             ? 'Select an active outdoor area'
                             : 'These existing areas are kept visible until their indoor or outdoor placement is confirmed.'}
                 </Text>
-                {scope !== 'unclassified' ? (
+                {scope !== 'unclassified' && !providerModeContext ? (
                     <ThemedButton
                         title="Add Area"
                         onPress={() => router.push(`/home/${scope}/add-area` as never)}

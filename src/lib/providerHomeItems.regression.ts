@@ -7,6 +7,7 @@ import {
     getProviderHomeItemCreateStrategy,
     getProviderHomeOSStarterItemCreateRpcName,
     getProviderHomeItemsRpcName,
+    getProviderPropertyNavigationRpcName,
     hasAssignedProviderHomeItemsContext,
 } from './providerHomeItems';
 
@@ -85,12 +86,20 @@ function salesTechUsesReadOnlyCompanyClientRpc() {
     assert(directStrategy === 'denied', 'Sales Tech must not read a client home without an explicitly assigned visit.');
     assert(assignedStrategy === 'sales_company_rpc', 'Assigned Sales Tech reads should use the dedicated read-only RPC.');
     assert(getProviderHomeItemsRpcName(assignedStrategy) === 'get_sales_company_homeos_items', 'Sales reads must not reuse the provider write authorization helper.');
+    assert(
+        getProviderPropertyNavigationRpcName(assignedStrategy) === 'get_sales_company_homeos_property_items',
+        'Sales property navigation must use the privacy-safe projection with area placement metadata.'
+    );
 }
 
 function assignedPlatformAdminKeepsAssignedRpcBoundary() {
     assert(
         getProviderHomeItemsReadStrategy(createContext(), 'provider_platform_admin') === 'assigned_rpc',
         'A platform admin with assignment context should keep using the assignment-scoped RPC.'
+    );
+    assert(
+        getProviderPropertyNavigationRpcName('assigned_rpc') === 'get_provider_homeos_property_items',
+        'Assigned provider property navigation must use its dedicated privacy-safe projection.'
     );
 }
 

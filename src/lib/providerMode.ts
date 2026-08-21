@@ -105,8 +105,9 @@ export function providerModeQueryParams(context: ProviderModeParams) {
 
 export function providerModePath(pathname: string, context: ProviderModeParams) {
     const query = new URLSearchParams(providerModeQueryParams(context)).toString();
+    const separator = pathname.includes('?') ? '&' : '?';
 
-    return `${pathname}?${query}` as Href;
+    return `${pathname}${separator}${query}` as Href;
 }
 
 export function providerModeItemPath(

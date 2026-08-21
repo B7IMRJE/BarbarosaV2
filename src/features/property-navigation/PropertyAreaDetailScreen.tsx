@@ -40,6 +40,13 @@ import {
     buildPropertyAreaContainerCreateRoute,
     resolvePropertyAreaContainerDeck,
 } from '../../lib/propertyAreaContainerDeck';
+import { loadProviderHomeItemsForNavigation } from '../../lib/providerHomeItems';
+import {
+    providerModeItemPath,
+    providerModePath,
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../lib/providerMode';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
@@ -63,11 +70,36 @@ type AreaItem = {
 };
 
 export default function PropertyAreaDetailScreen() {
-    const { area, parentArea, areaId } = useLocalSearchParams<{
+    const routeParams = useLocalSearchParams<{
         area?: string;
         parentArea?: string;
         areaId?: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
+    const { area, parentArea, areaId } = routeParams;
+    const providerModeContext = useMemo(() => readProviderModeParams({
+        providerMode: routeParams.providerMode,
+        companyId: routeParams.companyId,
+        propertyId: routeParams.propertyId,
+        returnTo: routeParams.returnTo,
+        serviceRequestId: routeParams.serviceRequestId,
+        scheduleSlotId: routeParams.scheduleSlotId,
+        jobId: routeParams.jobId,
+    }), [
+        routeParams.providerMode,
+        routeParams.companyId,
+        routeParams.propertyId,
+        routeParams.returnTo,
+        routeParams.serviceRequestId,
+        routeParams.scheduleSlotId,
+        routeParams.jobId,
+    ]);
     const routeParamsReady = useHydratedRouteParamsReady();
     const areaName = routeParamsReady ? decodeRouteParam(area) : '';
     const parentAreaName = routeParamsReady ? decodeRouteParam(parentArea) : '';
@@ -101,23 +133,36 @@ export default function PropertyAreaDetailScreen() {
         setMessage('');
 
         try {
-            const property = await requireActivePropertyMembership();
-            const [itemsResult, deckResult] = await Promise.all([
-                supabase
+            const property = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
+            const itemsPromise = providerModeContext
+                ? loadProviderHomeItemsForNavigation(providerModeContext, property.membershipRole)
+                : supabase
                     .from('home_items')
                     .select('id, name, item_slug, system, category, location, parent_area, status, install_state, starter_template_key, parent_home_item_id, placement_label, photo_url, area_placement_state, archived')
                     .eq('property_id', property.propertyId)
                     .or('archived.eq.false,archived.is.null')
                     .order('system')
-                    .order('name'),
-                loadHomeOSStarterCardChoices({ propertyId: property.propertyId })
+                    .order('name')
+                    .then(({ data, error }) => {
+                        if (error) throw error;
+                        return (data || []) as AreaItem[];
+                    });
+            const [itemRows, deckResult] = await Promise.all([
+                itemsPromise,
+                loadHomeOSStarterCardChoices({
+                    companyId: providerModeContext?.companyId,
+                    propertyId: property.propertyId,
+                    serviceRequestId: providerModeContext?.serviceRequestId,
+                    scheduleSlotId: providerModeContext?.scheduleSlotId,
+                    jobId: providerModeContext?.jobId,
+                })
                     .then((cards) => ({ cards, error: null as unknown }))
                     .catch((error) => ({ cards: [] as HomeOSStarterCardChoice[], error })),
             ]);
-            const { data, error } = itemsResult;
-
-            if (error) throw error;
-            setAllItems((data || []) as AreaItem[]);
+            setAllItems(itemRows as AreaItem[]);
             setStarterCards(deckResult.cards);
 
             if (deckResult.error) {
@@ -130,7 +175,7 @@ export default function PropertyAreaDetailScreen() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [providerModeContext]);
 
     useFocusEffect(useCallback(() => {
         void load();
@@ -156,9 +201,12 @@ export default function PropertyAreaDetailScreen() {
 
         router.replace({
             pathname: '/home/area/[area]',
-            params: propertyAreaDetailRouteParams(currentArea),
+            params: {
+                ...propertyAreaDetailRouteParams(currentArea),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
+            },
         } as never);
-    }, [currentArea, currentAreaResolution.status, loading]);
+    }, [currentArea, currentAreaResolution.status, loading, providerModeContext]);
     const currentAreaIsPortableLaundry = isPortableLaundryAreaName(currentArea?.name);
     const ambiguousPortableLaundry = useMemo(
         () => hasAmbiguousPortableLaundryAreas(allItems.filter((item) => normalizePropertyAreaName(item.category) === 'area')),
@@ -198,7 +246,10 @@ export default function PropertyAreaDetailScreen() {
     function openChildArea(item: AreaItem) {
         router.push({
             pathname: '/home/area/[area]',
-            params: propertyAreaDetailRouteParams(item),
+            params: {
+                ...propertyAreaDetailRouteParams(item),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
+            },
         } as never);
     }
 
@@ -214,10 +265,19 @@ export default function PropertyAreaDetailScreen() {
     function openAddContainer() {
         if (!detailRouteIsCurrent || !currentArea) return;
 
-        router.push(buildPropertyAreaContainerCreateRoute({
+        const route = buildPropertyAreaContainerCreateRoute({
             areaName: String(currentArea.name || '').trim(),
             parentAreaName: currentArea.parent_area,
-        }) as never);
+        });
+
+        router.push(providerModeContext ? {
+            ...route,
+            params: {
+                ...route.params,
+                ...providerModeQueryParams(providerModeContext),
+                areaReturnTo: providerModePath(route.params.areaReturnTo, providerModeContext),
+            },
+        } as never : route as never);
     }
 
     const routeStatusMessage = currentAreaResolution.status === 'recovered'
@@ -259,7 +319,7 @@ export default function PropertyAreaDetailScreen() {
                         <Text selectable style={foundation.typography.label}>
                             {currentAreaPlacementText}
                         </Text>
-                        {!(currentAreaIsPortableLaundry && ambiguousPortableLaundry) ? (
+                        {!providerModeContext && !(currentAreaIsPortableLaundry && ambiguousPortableLaundry) ? (
                             <ThemedButton
                                 title={currentAreaLocationAction}
                                 variant="secondary"
@@ -339,10 +399,12 @@ export default function PropertyAreaDetailScreen() {
                                                     ? `Open ${itemDisplay.title}${itemDisplay.placementLabel ? `, ${itemDisplay.placementLabel}` : ''}. Status: ${health.label}`
                                                     : `${itemDisplay.title} details unavailable. Status: ${health.label}`}
                                                 disabled={!itemSlug}
-                                                onPress={itemSlug ? () => router.push({
-                                                    pathname: '/item/[slug]',
-                                                    params: { slug: itemSlug, presentation: 'assembly' },
-                                                } as never) : undefined}
+                                                onPress={itemSlug ? () => router.push(providerModeContext
+                                                    ? providerModeItemPath(itemSlug, providerModeContext, { presentation: 'assembly' }) as never
+                                                    : {
+                                                        pathname: '/item/[slug]',
+                                                        params: { slug: itemSlug, presentation: 'assembly' },
+                                                    } as never) : undefined}
                                                 style={[
                                                     resolveHomeItemHealthCardStyle(health.tone, theme),
                                                     { width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth },

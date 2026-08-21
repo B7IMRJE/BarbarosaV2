@@ -49,7 +49,7 @@ export function buildTechOSProviderHomeRoute(context: TechOSClientJobContext) {
     const returnTo = buildTechOSCurrentJobRoute(context);
 
     return {
-        pathname: '/',
+        pathname: '/home',
         params: compactRouteParams({
             providerMode: '1',
             companyId: context.companyId,

@@ -65,6 +65,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         companyId?: string | string[];
         propertyId?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const providerModeContext = readProviderModeParams(routeParams);
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -100,7 +103,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const shouldShowBack = shouldShowGlobalBackButton(currentPath);
     const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
     const techOSCompanyId = firstRouteParam(routeParams.companyId);
-    const homeRoute = resolveGlobalHomeRoute({ pathname: currentPath, companyId: techOSCompanyId });
+    const homeRoute = providerModeContext
+        ? '/home'
+        : resolveGlobalHomeRoute({ pathname: currentPath, companyId: techOSCompanyId });
     const appLabel = isTechOSRoute ? 'TechOS' : providerModeContext ? 'Client HomeOS' : 'HomeOS';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
     const shouldShowActiveRequestStatus = shouldShowHomeownerActiveRequestStatus({
@@ -481,7 +486,7 @@ function firstRouteParam(value?: string | string[]) {
 
 function providerPrimaryTabs(companyId: string, propertyId: string): NavigationLink[] {
     return [
-        { label: 'Home', route: '/', icon: 'home-outline' },
+        { label: 'Home', route: '/home', icon: 'home-outline' },
         { label: 'Equipment', route: '/equipment', icon: 'tools' },
         { label: 'Documents', route: '/documents', icon: 'file-document-outline' },
         {
@@ -495,7 +500,7 @@ function providerPrimaryTabs(companyId: string, propertyId: string): NavigationL
 
 function providerDrawerLinks(companyId: string, propertyId: string): NavigationLink[] {
     return [
-        { label: 'Client Home', route: '/' },
+        { label: 'Client Home', route: '/home' },
         { label: 'Equipment', route: '/equipment' },
         { label: 'Documents', route: '/documents' },
         { label: 'Estimate Draft', route: '/estimate' },
@@ -525,6 +530,8 @@ function isProviderModeNavigationRoute(route: string) {
 
     return (
         normalizedRoute === '/' ||
+        normalizedRoute === '/home' ||
+        normalizedRoute.startsWith('/home/') ||
         normalizedRoute === '/equipment' ||
         normalizedRoute === '/documents' ||
         (normalizedRoute === '/estimate' || normalizedRoute.startsWith('/estimate/')) ||

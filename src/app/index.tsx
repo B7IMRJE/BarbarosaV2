@@ -1082,7 +1082,7 @@ export function HomeServicesScreen({
                   <ThemedButton
                     title="Client Home"
                     variant="secondary"
-                    onPress={() => router.replace(providerModePath('/', providerModeContext) as any)}
+                    onPress={() => router.replace(providerModePath('/home', providerModeContext) as any)}
                     style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
                     textStyle={{ fontSize: scaleFont(12) }}
                   />
