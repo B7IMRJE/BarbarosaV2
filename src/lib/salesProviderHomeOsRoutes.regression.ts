@@ -7,11 +7,36 @@ runSalesProviderHomeOsRouteRegressions();
 
 export function runSalesProviderHomeOsRouteRegressions() {
     assignedSalesCanOpenHomeOsAndItemCreation();
+    providerPropertyFirstRoutesDoNotRedirect();
     assignedProviderMaintenanceWizardDoesNotRedirect();
     authorizedProvidersCanOpenAreaStructureActions();
     salesCannotOpenHomeOsWithoutAssignedWorkContext();
     salesCannotOpenInstalledItemEditor();
     salesCannotChangeAreaStructure();
+}
+
+function providerPropertyFirstRoutesDoNotRedirect() {
+    const propertyFirstPaths = [
+        '/home',
+        '/home/interior',
+        '/home/exterior',
+        '/home/area/kitchen',
+    ];
+
+    for (const pathname of propertyFirstPaths) {
+        assert(
+            isProviderHomeOsRouteAllowed(pathname),
+            `Authorized provider route ${pathname} must remain inside Client HomeOS.`
+        );
+        assert(
+            isSalesProviderHomeOsRouteAllowed(pathname, true),
+            `Assigned Sales Tech route ${pathname} must remain inside Client HomeOS.`
+        );
+        assert(
+            !isSalesProviderHomeOsRouteAllowed(pathname, false),
+            `Unassigned Sales Tech route ${pathname} must remain denied.`
+        );
+    }
 }
 
 function authorizedProvidersCanOpenAreaStructureActions() {

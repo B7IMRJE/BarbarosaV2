@@ -4,7 +4,13 @@ export function isSalesProviderHomeOsRouteAllowed(
 ) {
     if (!hasAssignedWorkContext) return false;
 
-    if (pathname === '/' || pathname === '/equipment' || pathname.startsWith('/system/')) {
+    if (
+        pathname === '/' ||
+        pathname === '/home' ||
+        pathname.startsWith('/home/') ||
+        pathname === '/equipment' ||
+        pathname.startsWith('/system/')
+    ) {
         return true;
     }
 
@@ -18,6 +24,8 @@ export function isSalesProviderHomeOsRouteAllowed(
 export function isProviderHomeOsRouteAllowed(pathname: string) {
     return (
         pathname === '/' ||
+        pathname === '/home' ||
+        pathname.startsWith('/home/') ||
         pathname === '/equipment' ||
         pathname === '/documents' ||
         pathname === '/area/create' ||
