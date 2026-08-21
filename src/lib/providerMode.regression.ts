@@ -14,6 +14,7 @@ export function runProviderModeRegressions() {
     providerModeItemPathPreservesEstimateContext();
     providerModeItemPathPreservesFocusedView();
     providerModePathKeepsBackToCurrentJob();
+    providerModePathPreservesExistingAreaQuery();
     providerContextDoesNotInventOptionalIds();
     missingProviderContextIsDetected();
     providerEstimateRouteParamsRemainIntact();
@@ -66,6 +67,13 @@ function providerModePathKeepsBackToCurrentJob() {
 
     assert(homePath.includes('returnTo=%2Ftechos%3FcompanyId%3Dcompany-1%26slotId%3Dslot-1'), 'Provider path should keep the TechOS current-job return route.');
     assert(getProviderReturnActionLabel(createContext().returnTo) === 'Back to Current Job', 'TechOS return route should still label Back to Current Job.');
+}
+
+function providerModePathPreservesExistingAreaQuery() {
+    const areaPath = String(providerModePath('/home/area/Kitchen?parentArea=Guest%20House', createContext()));
+
+    assert(areaPath.includes('?parentArea=Guest%20House&providerMode=1'), 'Provider area routes should append context without replacing the existing area query.');
+    assert(areaPath.split('?').length === 2, 'Provider area routes should contain exactly one query delimiter.');
 }
 
 function providerContextDoesNotInventOptionalIds() {

@@ -66,6 +66,8 @@ export type ProviderHomeItemRpcRow = {
     starter_template_key?: string | null;
     parent_home_item_id?: string | null;
     placement_label?: string | null;
+    area_scope?: string | null;
+    area_placement_state?: string | null;
 };
 
 export async function createProviderHomeOSStarterItemFromDeck(
@@ -188,6 +190,12 @@ export function getProviderHomeItemsRpcName(strategy: ProviderHomeItemsReadStrat
         : 'get_provider_homeos_items';
 }
 
+export function getProviderPropertyNavigationRpcName(strategy: ProviderHomeItemsReadStrategy) {
+    return strategy === 'sales_company_rpc'
+        ? 'get_sales_company_homeos_property_items'
+        : 'get_provider_homeos_property_items';
+}
+
 export function buildProviderHomeItemsRpcArgs(
     context: ProviderHomeItemsReadContext,
     options: { itemSlug?: string | null } = {}
@@ -205,6 +213,43 @@ export function buildProviderHomeItemsRpcArgs(
     }
 
     return args;
+}
+
+/**
+ * Loads the provider-safe HomeOS projection used by the property-first card
+ * screens. Assigned technicians and sales users stay behind their existing
+ * SECURITY DEFINER RPCs; only platform administrators use the direct path.
+ */
+export async function loadProviderHomeItemsForNavigation(
+    context: ProviderHomeItemsReadContext,
+    membershipRole?: string | null,
+) {
+    const strategy = getProviderHomeItemsReadStrategy(context, membershipRole);
+
+    if (strategy === 'denied') {
+        throw new Error('Client HomeOS requires an assigned request, visit, or job context.');
+    }
+
+    if (usesProviderHomeItemsRpc(strategy)) {
+        const { data, error } = await supabase.rpc(
+            getProviderPropertyNavigationRpcName(strategy),
+            buildProviderHomeItemsRpcArgs(context),
+        );
+
+        if (error) throw error;
+        return (data || []) as ProviderHomeItemRpcRow[];
+    }
+
+    const { data, error } = await supabase
+        .from('home_items')
+        .select('id, item_slug, name, system, category, parent_area, status, location, about, brand, model, serial, install_date, created_at, install_state, photo_url, archived, property_id, starter_template_key, parent_home_item_id, placement_label, area_scope, area_placement_state')
+        .eq('property_id', context.propertyId)
+        .or('archived.eq.false,archived.is.null')
+        .order('system')
+        .order('name');
+
+    if (error) throw error;
+    return (data || []) as ProviderHomeItemRpcRow[];
 }
 
 export function buildProviderHomeItemCreateRpcArgs(
