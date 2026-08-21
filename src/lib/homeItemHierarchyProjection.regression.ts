@@ -3,6 +3,7 @@ import {
     resolveHomeItemAreaAssemblyDeck,
     resolveHomeItemAreaHierarchyProjection,
     resolveHomeItemComponentDeck,
+    resolveHomeItemDirectComponentDeck,
 } from './homeItemHierarchyProjection';
 
 runHomeItemHierarchyProjectionRegressions();
@@ -10,6 +11,7 @@ runHomeItemHierarchyProjectionRegressions();
 export function runHomeItemHierarchyProjectionRegressions() {
     kitchenSinkClaimsOnlyTheApprovedExistingDeck();
     bathroomVanityAndRefrigeratorClaimsAreTransitive();
+    itemDetailsKeepNestedLevelsDirect();
     kitchenCounterClaimsOnlyItsApprovedSavedEquipment();
     explicitParentIdsWinAndDisambiguateDuplicateAssemblies();
     ambiguousAndMismatchedLegacyRowsAreNotGuessed();
@@ -109,6 +111,30 @@ function bathroomVanityAndRefrigeratorClaimsAreTransitive() {
         resolveHomeItemComponentDeck([refrigerator, waterLine, waterFilter], refrigerator),
         ['Refrigerator Water Filter', 'Refrigerator Water Line'],
         'Refrigerator should claim only an existing Water Line and its saved descendants.'
+    );
+}
+
+function itemDetailsKeepNestedLevelsDirect() {
+    const vanity = item('vanity', 'Bathroom Vanity', 'Bathroom 1', 'bathroom:bathroom_vanity');
+    const faucet = item('faucet', 'Bathroom Sink Faucet', 'Bathroom 1', 'bathroom:bathroom_sink_faucet');
+    const trap = { ...item('trap', 'Bathroom Sink P-Trap', 'Bathroom 1', 'bathroom:bathroom_sink_p_trap'), parent_home_item_id: 'faucet' };
+    const washer = { ...item('washer', 'P-Trap Washer', 'Bathroom 1'), parent_home_item_id: 'trap' };
+    const rows = [vanity, faucet, trap, washer];
+
+    assertNames(
+        resolveHomeItemDirectComponentDeck(rows, vanity),
+        ['Bathroom Sink Faucet'],
+        'The Vanity item detail must show its direct Faucet card without flattening deeper components.'
+    );
+    assertNames(
+        resolveHomeItemDirectComponentDeck(rows, faucet),
+        ['Bathroom Sink P-Trap'],
+        'The Faucet item detail must open its direct P-Trap assembly.'
+    );
+    assertNames(
+        resolveHomeItemDirectComponentDeck(rows, trap),
+        ['P-Trap Washer'],
+        'A nested assembly must own its own direct component detail level.'
     );
 }
 

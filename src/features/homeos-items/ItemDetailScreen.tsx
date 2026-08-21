@@ -1,6 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
-import { ManageActionMenu, homeOSManageActionKeys } from '../../components/homeos/manage-action-menu';
 
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -81,7 +80,10 @@ import {
     resolveHomeItemChildCreateContext,
     type HomeItemHierarchyRecord,
 } from '../../lib/homeItemHierarchy';
-import { resolveHomeItemComponentDeck } from '../../lib/homeItemHierarchyProjection';
+import {
+    resolveHomeItemComponentDeck,
+    resolveHomeItemDirectComponentDeck,
+} from '../../lib/homeItemHierarchyProjection';
 import {
     loadHomeOSStarterCardChoices,
     type HomeOSStarterCardChoice,
@@ -89,6 +91,7 @@ import {
 import {
     homeOSStarterCardForInstalledContainer,
     homeOSStarterCardForInstalledComponent,
+    homeOSStarterCardForInstalledItem,
     homeOSStarterComponentCardsForContainer,
 } from '../../lib/homeosStarterCardPickerCore';
 import { nextHomeItemInstanceName } from '../../lib/homeItemInstances';
@@ -128,8 +131,13 @@ import {
     type HomeItemLifetimeHistoryMedia,
 } from '../../lib/home-item-closeout';
 import type { HomeItemCatalogProposal } from '../../lib/home-item-catalog';
+import { resolveUniversalHomeItemDetailFields } from '../../lib/homeItemDetailPresentation';
+import {
+    EquipmentContainer,
+    EquipmentDetailHeader,
+} from '../../components/homeos/HomeOSVisualFoundation';
+import { resolveHomeOSEquipmentVisual } from '../../components/homeos/homeos-visual-assets';
 import { useTheme } from '../../theme/useTheme';
-import HomeItemAssemblyView from './HomeItemAssemblyView';
 import HomeItemCatalogPicker from './home-item-catalog-picker';
 
 declare const __DEV__: boolean;
@@ -698,7 +706,7 @@ export default function ItemScreen() {
         ? resolveSavedParentForItem(hierarchyItems, item)
         : undefined;
     const currentItemParentMasterCard = currentItemParent
-        ? homeOSStarterCardForInstalledContainer(componentDeckChoices, currentItemParent)
+        ? homeOSStarterCardForInstalledItem(componentDeckChoices, currentItemParent)
         : undefined;
     const currentItemMasterCard = item
         ? currentItemParent
@@ -1082,7 +1090,7 @@ export default function ItemScreen() {
             setProviderRelatedNotes('');
             setProviderPanel('none');
             setRelatedItems((currentItems) =>
-                resolveHomeItemComponentDeck([...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[], item)
+                resolveHomeItemDirectComponentDeck([...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[], item)
             );
             setHierarchyItems((currentItems) => [...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[]);
             setMessage(`${itemName} was added under ${item.name || 'this item'}.`);
@@ -1848,7 +1856,7 @@ export default function ItemScreen() {
         }
 
         setHierarchyItems(rows);
-        return resolveHomeItemComponentDeck(rows, parentItem);
+        return resolveHomeItemDirectComponentDeck(rows, parentItem);
     }
 
     async function loadManagementItem(targetCompanyId: string, targetPropertyId: string) {
@@ -2748,11 +2756,9 @@ export default function ItemScreen() {
     }
 
     function openComponentDeckCard(templateKey = '') {
-        if (isLinkedComponent) {
-            setMessage('Add components from the parent equipment or fixture card. HomeOS keeps one clear component level.');
-            return;
-        }
-        if (!String(item.starter_template_key || '').trim()) {
+        const parentTemplateKey = String(currentItemDeckKey || item.starter_template_key || '').trim();
+
+        if (!parentTemplateKey) {
             setMessage('This installed card needs a Super Admin Deck identity before Component Cards can be added. No free-form component was created.');
             return;
         }
@@ -2768,7 +2774,7 @@ export default function ItemScreen() {
                 parentArea: childContext.parentArea || '',
                 parentItemId: String(item.id || ''),
                 parentItemSlug: String(item.item_slug || slug || ''),
-                parentTemplateKey: String(item.starter_template_key || ''),
+                parentTemplateKey,
                 ...(templateKey ? { templateKey } : {}),
                 deckPicker: 'true',
                 ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
@@ -3900,19 +3906,7 @@ export default function ItemScreen() {
             )
     );
 
-    const detailCards = [
-        { label: 'Condition', value: item.condition || item.install_state || 'Unknown' },
-        { label: 'Status', value: item.status || 'Missing Information' },
-        { label: 'System', value: item.system || 'Unknown' },
-        { label: 'Category', value: item.category || 'Unknown' },
-        { label: 'Location', value: item.location || 'Unknown' },
-        { label: 'Parent Area', value: item.parent_area || 'None' },
-        { label: 'Brand', value: item.brand || 'Unknown' },
-        { label: 'Model', value: item.model || 'Unknown' },
-        { label: 'Serial', value: item.serial || 'Unknown' },
-        { label: 'Part Number', value: item.part_number || 'Unknown' },
-        { label: 'Installed On', value: formatPermanentDate(item.installed_on || item.install_date) },
-    ];
+    const detailCards = resolveUniversalHomeItemDetailFields(item);
 
     function toggleActionGroup(group: ItemActionGroupKey) {
         setExpandedActionGroups((currentGroups) => ({
@@ -5108,11 +5102,18 @@ export default function ItemScreen() {
                                     style={scaleStyle(focusedManagementButtonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
+                                <ThemedButton
+                                    title="Add Related Item"
+                                    variant="secondary"
+                                    onPress={handleAddRelatedItem}
+                                    style={scaleStyle(focusedManagementButtonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
                                 {!isLinkedComponent ? (
                                     <ThemedButton
-                                        title="Add Related Item"
+                                        title={`Add Another ${String(item.name || 'Item').replace(/\s+(?:#\s*)?\d+$/i, '')}`}
                                         variant="secondary"
-                                        onPress={handleAddRelatedItem}
+                                        onPress={handleAddAnotherItem}
                                         style={scaleStyle(focusedManagementButtonStyle)}
                                         textStyle={scaleStyle(buttonTextStyle)}
                                     />
@@ -5201,54 +5202,6 @@ export default function ItemScreen() {
         );
     }
 
-    if (itemPresentation === 'assembly') {
-        return (
-            <HomeItemAssemblyView
-                item={item}
-                components={relatedItems}
-                componentDeckCards={componentDeckChoices}
-                availableComponents={availableComponentCards}
-                itemMasterCard={currentItemMasterCard}
-                onOpenComponent={openRelatedItem}
-                onAddComponent={(card) => openComponentDeckCard(card.templateKey)}
-                message={message}
-                manageControl={(
-                    <ManageActionMenu
-                        panelTitle={`Manage ${item.name || 'item'}`}
-                        panelDescription="Choose one clear action. Your item history and documents stay attached."
-                        actions={[
-                            {
-                                key: homeOSManageActionKeys.edit,
-                                title: 'Edit or Move',
-                                description: 'Update the name, information, or area for this item.',
-                                onPress: handleEditInformation,
-                            },
-                            {
-                                key: homeOSManageActionKeys.addComponent,
-                                title: 'Add Component',
-                                description: `Add an observed part inside ${item.name || 'this item'}.`,
-                                onPress: handleAddRelatedItem,
-                            },
-                            {
-                                key: homeOSManageActionKeys.addAnother,
-                                title: `Add Another ${String(item.name || 'Item').replace(/\s+(?:#\s*)?\d+$/i, '')}`,
-                                description: 'Start a separate blank record with its own components, photos, and history.',
-                                onPress: handleAddAnotherItem,
-                            },
-                            {
-                                key: homeOSManageActionKeys.archive,
-                                title: 'Remove from HomeOS',
-                                description: 'Archive this item without deleting its saved history.',
-                                destructive: true,
-                                onPress: confirmArchiveItem,
-                            },
-                        ]}
-                    />
-                )}
-            />
-        );
-    }
-
     return (
         <>
             <ScrollView
@@ -5258,11 +5211,42 @@ export default function ItemScreen() {
                 <View style={{ width: '100%', maxWidth: 1200 }}>
                     <HomeHeader />
 
-                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>{item.name}</Text>
-
-                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
-                        {item.about || 'This item has not been fully documented yet.'}
-                    </Text>
+                    <EquipmentDetailHeader
+                        title={currentItemMasterCard?.name || item.name || 'HomeOS item'}
+                        semanticIdentity={currentItemMasterCard?.templateKey || item.starter_template_key || undefined}
+                        type={item.placement_label || undefined}
+                        description={item.about || undefined}
+                        details={detailCards}
+                        photo={{
+                            uri: stagedMainPhotoUrl || (!providerMediaLocked ? item.photo_url : ''),
+                            notice: providerModeContext && stagedMainPhotoUrl
+                                ? 'Provider staged main photo — not published to client HomeOS yet.'
+                                : providerMediaLocked
+                                    ? 'Private HomeOS photos are locked in provider mode.'
+                                    : undefined,
+                            action: providerModeContext && stagedMainPhotoEntry
+                                ? (
+                                    <ThemedButton
+                                        title="View Full Photo"
+                                        variant="secondary"
+                                        onPress={() => setSelectedProviderPhotoId(stagedMainPhotoEntry.id)}
+                                        style={scaleStyle(secondaryButtonStyle)}
+                                        textStyle={scaleStyle(secondaryButtonTextStyle)}
+                                    />
+                                )
+                                : item.photo_url && !providerMediaLocked
+                                    ? (
+                                        <ThemedButton
+                                            title="View Full Photo"
+                                            variant="secondary"
+                                            onPress={() => setShowPhoto(true)}
+                                            style={scaleStyle(secondaryButtonStyle)}
+                                            textStyle={scaleStyle(secondaryButtonTextStyle)}
+                                        />
+                                    )
+                                    : undefined,
+                        }}
+                    />
 
                     {providerModeContext ? (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
@@ -5344,72 +5328,6 @@ export default function ItemScreen() {
                         </ThemedCard>
                     ) : null}
 
-                    <ThemedCard style={scaleStyle(photoCardStyle)}>
-                        <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Main Item Photo</Text>
-
-                        {providerModeContext && stagedMainPhotoUrl ? (
-                            <>
-                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
-                                    Provider staged main photo — not published to client HomeOS yet.
-                                </Text>
-                                <Image
-                                    source={{ uri: stagedMainPhotoUrl }}
-                                    style={scaleStyle(photoStyle)}
-                                    resizeMode="contain"
-                                />
-
-                                <ThemedButton
-                                    title="View Full Photo"
-                                    variant="secondary"
-                                    onPress={() => {
-                                        if (stagedMainPhotoEntry) {
-                                            setSelectedProviderPhotoId(stagedMainPhotoEntry.id);
-                                        }
-                                    }}
-                                    style={scaleStyle(secondaryButtonStyle)}
-                                    textStyle={scaleStyle(secondaryButtonTextStyle)}
-                                />
-                            </>
-                        ) : item.photo_url && !providerMediaLocked ? (
-                            <>
-                                <Image
-                                    source={{ uri: item.photo_url }}
-                                    style={scaleStyle(photoStyle)}
-                                    resizeMode="contain"
-                                />
-
-                                <ThemedButton
-                                    title="View Full Photo"
-                                    variant="secondary"
-                                    onPress={() => setShowPhoto(true)}
-                                    style={scaleStyle(secondaryButtonStyle)}
-                                    textStyle={scaleStyle(secondaryButtonTextStyle)}
-                                />
-                            </>
-                        ) : (
-                            <View style={[scaleStyle(photoPlaceholderStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
-                                <Text style={scaleStyle(photoIconStyle)}>📷</Text>
-                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
-                                    {providerMediaLocked ? 'Private HomeOS photos are locked in provider mode' : 'No main photo uploaded'}
-                                </Text>
-                            </View>
-                        )}
-                    </ThemedCard>
-
-                    <View style={scaleStyle(infoGridStyle)}>
-                        {detailCards.map((detail) => (
-                            <ThemedCard
-                                key={detail.label}
-                                style={scaleStyle(miniCardStyle)}
-                            >
-                                <Text style={[scaleStyle(miniLabelStyle), { color: theme.colors.mutedText }]}>{detail.label}</Text>
-                                <Text style={[scaleStyle(miniValueStyle), { color: theme.colors.text }]} numberOfLines={2}>
-                                    {detail.value}
-                                </Text>
-                            </ThemedCard>
-                        ))}
-                    </View>
-
                     <LifetimeHistoryCard
                         entries={lifetimeHistory}
                         loading={lifetimeHistoryLoading}
@@ -5450,14 +5368,14 @@ export default function ItemScreen() {
                                 </View>
                             </ThemedCard>
                         ) : null}
-                        {!isLinkedComponent ? renderSectionTile(
+                        {renderSectionTile(
                             'components',
                             'Components',
                             relatedItems.length > 0
                                 ? `View parts under ${item.name || 'this item'}.`
                                 : `Add parts under ${item.name || 'this item'}.`,
                             `${relatedItems.length}`
-                        ) : null}
+                        )}
                         {renderSectionTile(
                             'maintenance',
                             'Maintenance',
@@ -5490,15 +5408,13 @@ export default function ItemScreen() {
                         {!isSalesProviderReadOnly && renderSectionTile(
                             'item',
                             'Item Management',
-                            isLinkedComponent
-                                ? 'Edit this component, request service, or archive it.'
-                                : 'Edit, add components, request service, or archive.',
+                            'Edit this item, add components, request service, or archive.',
                             undefined,
                             openItemManagement
                         )}
                     </View>
 
-                    {!isLinkedComponent && expandedActionGroups.components ? (
+                    {expandedActionGroups.components ? (
                     <ThemedCard style={scaleStyle(relatedItemsCardStyle)}>
                         <View style={scaleStyle(relatedItemsHeaderStyle)}>
                             <View style={scaleStyle(relatedItemsHeaderTextStyle)}>
@@ -5525,30 +5441,49 @@ export default function ItemScreen() {
                             </View>
                         ) : (
                             <View style={scaleStyle(relatedItemsGridStyle)}>
-                                {relatedItems.map((relatedItem) => (
-                                    <TouchableOpacity
-                                        key={relatedItem.id || relatedItem.item_slug || relatedItem.name || ''}
-                                        onPress={() => openRelatedItem(relatedItem)}
-                                        activeOpacity={0.84}
-                                        style={[
-                                            relatedItemCardStyle,
-                                            {
-                                                backgroundColor: theme.colors.surfaceAlt,
-                                                borderColor: theme.colors.border,
-                                                borderRadius: theme.radii.card,
-                                            },
-                                        ]}
-                                    >
-                                        <Text style={[scaleStyle(relatedItemTitleStyle), { color: theme.colors.text }]} numberOfLines={2}>
-                                            {relatedItem.name || 'Unnamed component'}
-                                        </Text>
-                                        <Text style={[scaleStyle(relatedItemMetaStyle), { color: theme.colors.mutedText }]} numberOfLines={1}>
-                                            {relatedItem.category || 'Component'} / {relatedItem.status || relatedItem.install_state || 'Missing Information'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                                {relatedItems.map((relatedItem) => {
+                                    const masterCard = homeOSStarterCardForInstalledComponent(
+                                        componentDeckChoices,
+                                        currentItemDeckKey,
+                                        relatedItem,
+                                    );
+                                    const componentTitle = masterCard?.name || relatedItem.name || 'Unnamed component';
+                                    const componentStatus = relatedItem.status || relatedItem.install_state || 'Missing Information';
+
+                                    return (
+                                        <EquipmentContainer
+                                            key={relatedItem.id || relatedItem.item_slug || relatedItem.name || ''}
+                                            title={componentTitle}
+                                            semanticIdentity={masterCard?.templateKey || relatedItem.starter_template_key || undefined}
+                                            detail={`${relatedItem.category || 'Component'} · Status: ${componentStatus}`}
+                                            visual={resolveHomeOSEquipmentVisual(providerMediaLocked ? '' : relatedItem.photo_url)}
+                                            disabled={!relatedItem.item_slug}
+                                            onPress={relatedItem.item_slug ? () => openRelatedItem(relatedItem) : undefined}
+                                            accessibilityLabel={`Open ${componentTitle} details. Status: ${componentStatus}`}
+                                        />
+                                    );
+                                })}
                             </View>
                         )}
+
+                        {availableComponentCards.length > 0 ? (
+                            <View style={scaleStyle(relatedItemsDeckStyle)}>
+                                <Text style={[scaleStyle(relatedItemsDeckTitleStyle), { color: theme.colors.text }]}>Available from Card Deck</Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Add an observed component from the compatible Super Admin Deck. This creates a property-specific instance without claiming it is already installed.</Text>
+                                <View style={scaleStyle(relatedItemsGridStyle)}>
+                                    {availableComponentCards.map((card) => (
+                                        <EquipmentContainer
+                                            key={card.templateKey}
+                                            title={card.name}
+                                            semanticIdentity={card.templateKey}
+                                            detail="Master Component Card · Not added"
+                                            onPress={() => openComponentDeckCard(card.templateKey)}
+                                            accessibilityLabel={`Add ${card.name} from the HomeOS Card Deck`}
+                                        />
+                                    ))}
+                                </View>
+                            </View>
+                        ) : null}
                     </ThemedCard>
                     ) : null}
 
@@ -6163,9 +6098,7 @@ export default function ItemScreen() {
                     {!isSalesProviderReadOnly && renderActionGroup(
                         'item',
                         'Item management',
-                        isLinkedComponent
-                            ? 'Edit this component, or request/archive work.'
-                            : 'Edit this item, add components inside it, or request/archive work.',
+                        'Edit this item, add components inside it, or request/archive work.',
                         <>
                             <ThemedButton
                                 title="Edit Information"
@@ -6174,10 +6107,17 @@ export default function ItemScreen() {
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />
 
+                            <ThemedButton
+                                title="Add Related Item"
+                                onPress={handleAddRelatedItem}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
                             {!isLinkedComponent ? (
                                 <ThemedButton
-                                    title="Add Related Item"
-                                    onPress={handleAddRelatedItem}
+                                    title={`Add Another ${String(item.name || 'Item').replace(/\s+(?:#\s*)?\d+$/i, '')}`}
+                                    variant="secondary"
+                                    onPress={handleAddAnotherItem}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -7383,37 +7323,10 @@ const focusedPageLoadingStyle = {
     gap: 14,
 };
 
-const photoCardStyle = {
-    borderRadius: 22,
-    padding: 18,
-    marginBottom: 14,
-    borderWidth: 1,
-};
-
 const labelStyle = {
     fontSize: 14,
     marginBottom: 6,
     fontWeight: '900' as const,
-};
-
-const photoStyle = {
-    height: 320,
-    width: '100%' as const,
-    borderRadius: 18,
-    marginTop: 12,
-};
-
-const photoPlaceholderStyle = {
-    height: 260,
-    borderRadius: 18,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    marginTop: 12,
-};
-
-const photoIconStyle = {
-    fontSize: 28,
-    marginBottom: 6,
 };
 
 const photoTextStyle = {
@@ -7810,26 +7723,15 @@ const relatedItemsGridStyle = {
     marginTop: 14,
 };
 
-const relatedItemCardStyle = {
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    width: 148,
-    minHeight: 120,
-    justifyContent: 'center' as const,
+const relatedItemsDeckStyle = {
+    gap: 8,
+    marginTop: 20,
 };
 
-const relatedItemTitleStyle = {
-    fontSize: 15,
-    lineHeight: 20,
+const relatedItemsDeckTitleStyle = {
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '900' as const,
-};
-
-const relatedItemMetaStyle = {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800' as const,
-    marginTop: 4,
 };
 
 const actionGroupCardStyle = {

@@ -359,16 +359,24 @@ export function EquipmentDetailHeader({
     semanticIdentity,
     type,
     identifier,
+    description,
     details,
     visual,
+    photo,
     style,
 }: {
     title: string;
     semanticIdentity?: string;
     type?: string;
     identifier?: string;
+    description?: string;
     details?: readonly { label: string; value?: string | null }[];
     visual?: HomeOSVisualAsset;
+    photo?: {
+        uri?: string | null;
+        notice?: string;
+        action?: ReactNode;
+    };
     style?: StyleProp<ViewStyle>;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -377,12 +385,38 @@ export function EquipmentDetailHeader({
 
     return (
         <View style={[foundation.surface, { padding: foundation.spacing.comfortable, gap: foundation.spacing.comfortable }, style]}>
-            <HomeOSCardVisual asset={visual} label={title} semanticIdentity={semanticIdentity} fallbackContext="equipment" size="destination" />
+            {photo?.uri?.trim() ? (
+                <View
+                    accessible={false}
+                    style={[foundation.imageSurface, {
+                        width: '100%',
+                        height: foundation.grid.destinationImageHeight,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: theme.colors.iconBackground,
+                    }]}
+                >
+                    <Image
+                        source={{ uri: photo.uri.trim() }}
+                        accessibilityLabel={`${title} main photo`}
+                        alt={`${title} main photo`}
+                        cachePolicy="memory-disk"
+                        contentFit="contain"
+                        transition={160}
+                        style={{ width: '100%', height: '100%' }}
+                    />
+                </View>
+            ) : (
+                <HomeOSCardVisual asset={visual} label={title} semanticIdentity={semanticIdentity} fallbackContext="equipment" size="destination" />
+            )}
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable style={foundation.typography.destinationTitle}>{title}</Text>
                 {type ? <Text selectable style={foundation.typography.body}>{type}</Text> : null}
                 {identifier ? <Text selectable style={foundation.typography.label}>{identifier}</Text> : null}
+                {description ? <Text selectable style={foundation.typography.body}>{description}</Text> : null}
             </View>
+            {photo?.notice ? <Text selectable style={foundation.typography.body}>{photo.notice}</Text> : null}
+            {photo?.action ? <View style={{ alignItems: 'flex-start' }}>{photo.action}</View> : null}
             {details?.length ? (
                 <View style={{ gap: foundation.spacing.regular }}>
                     <Pressable
