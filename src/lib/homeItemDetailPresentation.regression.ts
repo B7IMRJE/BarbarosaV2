@@ -1,4 +1,18 @@
-import { resolveUniversalHomeItemDetailFields } from './homeItemDetailPresentation';
+import {
+    initialUniversalHomeItemActionGroups,
+    resolveUniversalHomeItemDetailFields,
+} from './homeItemDetailPresentation';
+
+const initialActionGroups = initialUniversalHomeItemActionGroups();
+if (!initialActionGroups.components) {
+    throw new Error('Canonical child components must be visible when an item detail first opens.');
+}
+
+for (const [group, expanded] of Object.entries(initialActionGroups)) {
+    if (group !== 'components' && expanded) {
+        throw new Error(`${group} must retain its established collapsed default.`);
+    }
+}
 
 const details = resolveUniversalHomeItemDetailFields({
     name: 'Bathroom Faucet',
