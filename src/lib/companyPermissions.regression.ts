@@ -16,7 +16,23 @@ export function runCompanyPermissionsRegressions() {
     activeDispatcherCanUseDispatchWithoutManagementFlags();
     inactiveDispatcherCannotUseDispatch();
     salesTechCanAuthorProposalsWithoutOperationalControl();
+    salesTechEstimateAuthoringCannotBeDisabled();
     salesTechRestrictionsCannotBeOverridden();
+}
+
+function salesTechEstimateAuthoringCannotBeDisabled() {
+    const sales = {
+        role: 'sales',
+        status: 'active',
+        permissions: {
+            can_create_estimates: false,
+            can_add_item_to_estimate: false,
+        },
+    };
+
+    assert(canUseCompanyEstimateWorkflow(sales), 'Active Sales Techs must retain the estimate workflow when legacy overrides are false.');
+    assert(hasCompanyPermission(sales, 'can_create_estimates'), 'Active Sales Techs must retain estimate creation permission.');
+    assert(hasCompanyPermission(sales, 'can_add_item_to_estimate'), 'Active Sales Techs must retain add-item permission.');
 }
 
 function activeTechnicianCanUseEstimateWorkflow() {
