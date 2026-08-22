@@ -5,6 +5,12 @@ import {
     type CatalogAiDraftPayload,
     type CatalogAiResearchResult,
 } from './catalogAiBuilderCore';
+import {
+    parseCatalogAiDraftSummaries,
+    parseCatalogAiLoadedDraft,
+    type CatalogAiDraftSummary,
+    type CatalogAiLoadedDraft,
+} from './catalogAiDraftPersistenceCore';
 
 export type CatalogAiBuilderConfig = {
     primaryItemTypes: string[];
@@ -142,10 +148,18 @@ export async function saveCatalogAiDraft(draftId: string | null, payload: Catalo
     return data;
 }
 
-export async function loadCatalogAiDraft(draftId: string) {
+export async function listOpenCatalogAiDrafts(limit = 25): Promise<CatalogAiDraftSummary[]> {
+    const { data, error } = await supabase.rpc('list_open_catalog_ai_drafts', {
+        p_limit: Math.max(1, Math.min(Math.floor(limit), 100)),
+    });
+    if (error) throw error;
+    return parseCatalogAiDraftSummaries(data);
+}
+
+export async function loadCatalogAiDraft(draftId: string): Promise<CatalogAiLoadedDraft> {
     const { data, error } = await supabase.rpc('get_catalog_ai_draft', { p_draft_id: draftId });
     if (error) throw error;
-    return data;
+    return parseCatalogAiLoadedDraft(data);
 }
 
 export async function reviewCatalogAiImageCandidate(input: {

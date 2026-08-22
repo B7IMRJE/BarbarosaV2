@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Linking, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import CompactCatalogProductTile from '../../components/catalog/compact-catalog-product-tile';
 import ProductCardImage from '../../components/catalog/product-card-image';
@@ -6,6 +6,7 @@ import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import type { CatalogTemplateDefinition } from '../../lib/catalogFactoryCore';
 import { catalogFieldLabel } from '../../lib/catalogFactoryPresentation';
+import { decideCatalogAiDraftSave, type CatalogAiDraftSaveDecision } from '../../lib/catalogAiDraftLifecycle';
 import { useTheme } from '../../theme/useTheme';
 
 export const AI_CATALOG_PRIMARY_ITEM_TYPES = [
@@ -56,6 +57,7 @@ export type AiCatalogItemDraft = {
     sources: AiCatalogSource[];
     candidateImages: AiCatalogCandidateImage[];
     provenance: Record<string, AiCatalogFieldProvenance>;
+    provenanceSourceUrls: Record<string, string[]>;
     warnings: string[];
     criticalWarnings: string[];
 };
@@ -67,11 +69,28 @@ export type AiCatalogResearchRequest = {
     currentDraft: AiCatalogItemDraft;
 };
 
+export type AiCatalogSavedDraftSummary = {
+    draftId: string;
+    label: string;
+    updatedAt: string;
+};
+
+export type AiCatalogLoadedDraft = {
+    draftId: string;
+    draft: AiCatalogItemDraft;
+};
+
 export type AiCatalogItemBuilderAdapter = {
     research: (request: AiCatalogResearchRequest) => Promise<Partial<AiCatalogItemDraft>>;
     saveDraft: (draft: AiCatalogItemDraft) => Promise<{ draftId: string }>;
     approveDraft: (draftId: string, draft: AiCatalogItemDraft) => Promise<void>;
     pickImage?: () => Promise<AiCatalogCandidateImage | null>;
+    /** Returns platform AI drafts that the current Super Admin is allowed to resume. */
+    listDrafts?: () => Promise<AiCatalogSavedDraftSummary[]>;
+    /** Maps the persisted payload back into this UI draft shape. */
+    loadDraft?: (draftId: string) => Promise<AiCatalogLoadedDraft>;
+    /** Clears any adapter-held draft identity before beginning a separate draft. */
+    startNewDraft?: () => Promise<void> | void;
 };
 
 export type AiCatalogItemBuilderProps = {
@@ -83,11 +102,50 @@ export type AiCatalogItemBuilderProps = {
     onApproved?: () => void;
 };
 
+export type AiCatalogDraftSaveDecision = CatalogAiDraftSaveDecision;
+export const decideAiCatalogDraftSave = decideCatalogAiDraftSave;
+
 const blankDraft = (): AiCatalogItemDraft => ({
     prompt: '', manufacturer: '', productName: '', familyName: '', modelNumber: '', manufacturerPartNumber: '', productUrl: '', notes: '',
     primaryItemType: '', subtype: '', categoryTemplateId: '', system: '', suggestedAreas: [], parentPlacements: [], tags: [],
-    description: '', specifications: {}, sources: [], candidateImages: [], provenance: {}, warnings: [], criticalWarnings: [],
+    description: '', specifications: {}, sources: [], candidateImages: [], provenance: {}, provenanceSourceUrls: {}, warnings: [], criticalWarnings: [],
 });
+
+function hasDraftContentFor(draft: AiCatalogItemDraft) {
+    return Boolean(
+        draft.prompt.trim()
+        || draft.manufacturer.trim()
+        || draft.productName.trim()
+        || draft.familyName.trim()
+        || draft.modelNumber.trim()
+        || draft.manufacturerPartNumber.trim()
+        || draft.productUrl.trim()
+        || draft.notes.trim(),
+    );
+}
+
+function normalizeAiCatalogItemDraft(draft: AiCatalogItemDraft): AiCatalogItemDraft {
+    const blank = blankDraft();
+    return {
+        ...blank,
+        ...draft,
+        suggestedAreas: Array.isArray(draft.suggestedAreas) ? draft.suggestedAreas : [],
+        parentPlacements: Array.isArray(draft.parentPlacements) ? draft.parentPlacements : [],
+        tags: Array.isArray(draft.tags) ? draft.tags : [],
+        specifications: draft.specifications || {},
+        sources: Array.isArray(draft.sources) ? draft.sources.slice(0, 4) : [],
+        candidateImages: Array.isArray(draft.candidateImages) ? normalizeCandidateImages(draft.candidateImages) : [],
+        provenance: draft.provenance || {},
+        provenanceSourceUrls: normalizeProvenanceSourceUrls(draft.provenanceSourceUrls),
+        warnings: Array.isArray(draft.warnings) ? draft.warnings : [],
+        criticalWarnings: Array.isArray(draft.criticalWarnings) ? draft.criticalWarnings : [],
+    };
+}
+
+function formatSavedDraftTime(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'recently' : date.toLocaleString();
+}
 
 const knownSystems = ['Plumbing', 'Electrical', 'HVAC', 'Gas', 'Appliance'];
 const sourceLabels: Record<AiCatalogSource['kind'], string> = {
@@ -116,6 +174,12 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
     const [approving, setApproving] = useState(false);
     const [draftId, setDraftId] = useState('');
     const [savedFingerprint, setSavedFingerprint] = useState('');
+    const [savedDrafts, setSavedDrafts] = useState<AiCatalogSavedDraftSummary[]>([]);
+    const [loadingSavedDrafts, setLoadingSavedDrafts] = useState(false);
+    const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+    const failedAutoSaveFingerprintRef = useRef('');
+    const draftRef = useRef(draft);
 
     const selectedTemplate = templates.find((template) => template.id === draft.categoryTemplateId);
     const productName = draft.productName.trim() || [draft.manufacturer, draft.familyName, draft.modelNumber].filter(Boolean).join(' ') || 'Catalog item draft';
@@ -160,8 +224,87 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
     ].filter(Boolean);
     const hasCriticalWarnings = criticalWarnings.length > 0;
 
+    const refreshSavedDrafts = useCallback(async () => {
+        if (!adapter?.listDrafts) return;
+        setLoadingSavedDrafts(true);
+        try {
+            const next = await adapter.listDrafts();
+            setSavedDrafts(next);
+        } catch (error) {
+            setMessage(readError(error));
+        } finally {
+            setLoadingSavedDrafts(false);
+        }
+    }, [adapter]);
+
+    useEffect(() => {
+        void refreshSavedDrafts();
+    }, [refreshSavedDrafts]);
+
+    const persistDraft = useCallback(async (snapshot: AiCatalogItemDraft, reason: 'manual' | 'auto' | 'research' | 'flush'): Promise<boolean> => {
+        if (!adapter || !hasDraftContentFor(snapshot)) return false;
+        const snapshotFingerprint = fingerprintDraft(snapshot);
+        setSaving(true);
+        try {
+            const result = await adapter.saveDraft(snapshot);
+            setDraftId(result.draftId);
+            setSavedFingerprint(snapshotFingerprint);
+            failedAutoSaveFingerprintRef.current = '';
+            if (reason === 'manual' || reason === 'flush') setMessage('Draft saved. It is not in the live catalog until you explicitly approve it.');
+            if (reason === 'research') setMessage('Research is now saved as an editable draft. Review every field, select approved sources and imagery, then approve only when ready.');
+            onSaved?.(result.draftId);
+            void refreshSavedDrafts();
+            return true;
+        } catch (error) {
+            if (reason === 'auto') failedAutoSaveFingerprintRef.current = snapshotFingerprint;
+            setMessage(reason === 'auto' ? `Automatic draft save failed. Make another edit or use Save Draft to retry. ${readError(error)}` : readError(error));
+            return false;
+        } finally {
+            setSaving(false);
+        }
+    }, [adapter, onSaved, refreshSavedDrafts]);
+
+    const enqueueSave = useCallback((snapshot: AiCatalogItemDraft, reason: 'manual' | 'auto' | 'research' | 'flush') => {
+        const next = () => persistDraft(snapshot, reason);
+        saveQueueRef.current = saveQueueRef.current.then(next, next);
+        return saveQueueRef.current;
+    }, [persistDraft]);
+
+    const clearAutoSave = () => {
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+    };
+
+    const draftFingerprint = fingerprintDraft(draft);
+    useEffect(() => {
+        draftRef.current = draft;
+    }, [draft]);
+
+    useEffect(() => {
+        const decision = decideAiCatalogDraftSave({
+            hasContent: hasDraftContent,
+            currentFingerprint: draftFingerprint,
+            savedFingerprint,
+            failedAutoSaveFingerprint: failedAutoSaveFingerprintRef.current,
+        });
+        if (!adapter || researching || approving || busy || !decision.shouldSave) return undefined;
+        clearAutoSave();
+        autoSaveTimerRef.current = setTimeout(() => {
+            autoSaveTimerRef.current = null;
+            void enqueueSave(draft, 'auto');
+        }, decision.delayMs);
+        return clearAutoSave;
+    }, [adapter, approving, busy, draft, draftFingerprint, enqueueSave, hasDraftContent, researching, savedFingerprint]);
+
+    useEffect(() => clearAutoSave, []);
+
     const update = <K extends keyof AiCatalogItemDraft>(key: K, value: AiCatalogItemDraft[K], provenance: AiCatalogFieldProvenance = 'admin_entered') => {
-        setDraft((current) => ({ ...current, [key]: value, provenance: { ...current.provenance, [key]: provenance } }));
+        setDraft((current) => ({
+            ...current,
+            [key]: value,
+            provenance: { ...current.provenance, [key]: provenance },
+            provenanceSourceUrls: { ...current.provenanceSourceUrls, [key]: [] },
+        }));
     };
 
     const addListValue = (key: 'suggestedAreas' | 'parentPlacements' | 'tags', value: string, setText: (value: string) => void) => {
@@ -169,18 +312,25 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
         if (!clean) return;
         setDraft((current) => current[key].some((item) => item.toLowerCase() === clean.toLowerCase())
             ? current
-            : { ...current, [key]: [...current[key], clean], provenance: { ...current.provenance, [key]: 'admin_entered' } });
+            : {
+                ...current,
+                [key]: [...current[key], clean],
+                provenance: { ...current.provenance, [key]: 'admin_entered' },
+                provenanceSourceUrls: { ...current.provenanceSourceUrls, [key]: [] },
+            });
         setText('');
     };
 
     const removeListValue = (key: 'suggestedAreas' | 'parentPlacements' | 'tags', value: string) => {
-        setDraft((current) => ({ ...current, [key]: current[key].filter((item) => item !== value) }));
+        setDraft((current) => ({
+            ...current,
+            [key]: current[key].filter((item) => item !== value),
+            provenance: { ...current.provenance, [key]: 'admin_entered' },
+            provenanceSourceUrls: { ...current.provenanceSourceUrls, [key]: [] },
+        }));
     };
 
-    const removeSource = (id: string) => setDraft((current) => ({
-        ...current,
-        sources: current.sources.filter((source) => source.id !== id),
-    }));
+    const removeSource = (id: string) => setDraft((current) => removeDraftSource(current, id));
 
     const addImageUrl = () => {
         const url = imageUrl.trim();
@@ -246,6 +396,7 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
             setMessage('Describe the item or enter any known product detail before researching.');
             return;
         }
+        clearAutoSave();
         setResearching(true);
         setMessage(refinement.trim() ? 'Revising the research draft…' : 'Researching authoritative product information…');
         try {
@@ -255,9 +406,12 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
                 known: pickKnownFields(draft),
                 currentDraft: draft,
             });
-            setDraft((current) => mergeResearchDraft(current, result));
+            const researchedDraft = mergeResearchDraft(draftRef.current, result);
+            setDraft(researchedDraft);
             setRefinement('');
-            setMessage('Research is now an editable draft. Review every field, select approved sources and imagery, then save it as a draft.');
+            clearAutoSave();
+            const saved = await enqueueSave(researchedDraft, 'research');
+            if (!saved) setMessage('Research is ready locally, but could not be saved yet. Review it, then use Save Draft to retry before leaving.');
         } catch (error) {
             setMessage(readError(error));
         } finally {
@@ -266,24 +420,67 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
     };
 
     const saveDraft = async () => {
-        if (!adapter) return;
+        if (!adapter) return false;
         if (!hasDraftContent) {
             setMessage('Describe the item or enter at least one known product detail before saving a draft.');
-            return;
+            return false;
         }
-        setSaving(true);
+        clearAutoSave();
+        return enqueueSave(draft, 'manual');
+    };
+
+    const flushBeforeExit = async () => {
+        clearAutoSave();
+        if (!hasDraftContent || (!isDirty && Boolean(draftId))) return true;
+        const saved = await enqueueSave(draft, 'flush');
+        if (!saved) setMessage('This draft could not be saved. Retry Save Draft before leaving so your research is not lost.');
+        return saved;
+    };
+
+    const hydrateDraft = (loaded: AiCatalogLoadedDraft) => {
+        const next = normalizeAiCatalogItemDraft(loaded.draft);
+        setDraft(next);
+        setDraftId(loaded.draftId);
+        setSavedFingerprint(fingerprintDraft(next));
+        failedAutoSaveFingerprintRef.current = '';
+        setRefinement('');
+        setMessage('Saved AI draft resumed. Review, edit, or research again; it remains unpublished until you approve it.');
+    };
+
+    const resumeDraft = async (summary: AiCatalogSavedDraftSummary) => {
+        if (!adapter?.loadDraft) return;
+        const flushed = await flushBeforeExit();
+        if (!flushed) return;
+        setLoadingSavedDrafts(true);
         try {
-            const snapshot = draft;
-            const result = await adapter.saveDraft(snapshot);
-            setDraftId(result.draftId);
-            setSavedFingerprint(fingerprintDraft(snapshot));
-            setMessage('Draft saved. It is not in the live catalog until you explicitly approve it.');
-            onSaved?.(result.draftId);
+            hydrateDraft(await adapter.loadDraft(summary.draftId));
         } catch (error) {
             setMessage(readError(error));
         } finally {
-            setSaving(false);
+            setLoadingSavedDrafts(false);
         }
+    };
+
+    const startNewDraft = async () => {
+        if (!adapter?.startNewDraft) return;
+        const flushed = await flushBeforeExit();
+        if (!flushed) return;
+        try {
+            await adapter.startNewDraft();
+            setDraft(blankDraft());
+            setDraftId('');
+            setSavedFingerprint('');
+            failedAutoSaveFingerprintRef.current = '';
+            setRefinement('');
+            setMessage('New AI catalog draft. Add what you know, then research when ready.');
+        } catch (error) {
+            setMessage(readError(error));
+        }
+    };
+
+    const closeBuilder = async () => {
+        const flushed = await flushBeforeExit();
+        if (flushed) onClose();
     };
 
     const approve = async () => {
@@ -307,6 +504,7 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
             ...current,
             specifications: { ...current.specifications, [key]: specificationValue.trim() },
             provenance: { ...current.provenance, [`specifications.${key}`]: 'admin_entered' },
+            provenanceSourceUrls: { ...current.provenanceSourceUrls, [`specifications.${key}`]: [] },
         }));
         setSpecificationKey('');
         setSpecificationValue('');
@@ -322,6 +520,24 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
             </View>
 
             <Notice message={message} warning={!adapter} />
+
+            {!!adapter?.listDrafts && <Section title="Saved AI drafts">
+                <Text selectable style={{ color: theme.colors.mutedText, lineHeight: scaleFont(19) }}>Saved research stays private to Super Admin review. Resuming never publishes a catalog item.</Text>
+                {loadingSavedDrafts && <Text selectable style={{ color: theme.colors.mutedText, fontWeight: '800' }}>Loading saved drafts…</Text>}
+                {!loadingSavedDrafts && !savedDrafts.length && <Text selectable style={{ color: theme.colors.mutedText }}>No saved AI drafts yet.</Text>}
+                <View style={{ gap: scaleIcon(7) }}>
+                    {savedDrafts.map((summary) => (
+                        <View key={summary.draftId} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: scaleIcon(8), borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, borderRadius: scaleIcon(11), borderCurve: 'continuous', padding: scaleIcon(10) }}>
+                            <View style={{ flex: 1, minWidth: scaleIcon(160), gap: 2 }}>
+                                <Text selectable style={{ color: theme.colors.text, fontWeight: '900' }}>{summary.label || 'Untitled AI catalog draft'}</Text>
+                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12) }}>Saved {formatSavedDraftTime(summary.updatedAt)}</Text>
+                            </View>
+                            <ThemedButton title="Resume" variant="secondary" disabled={isBusy || !adapter.loadDraft} onPress={() => void resumeDraft(summary)} />
+                        </View>
+                    ))}
+                </View>
+                {!!adapter.startNewDraft && <ThemedButton title="Start New AI Draft" variant="secondary" disabled={isBusy} onPress={() => void startNewDraft()} />}
+            </Section>}
 
             <BuilderField label="Describe the item" required value={draft.prompt} onChangeText={(value) => update('prompt', value)} multiline placeholder="Example: Rheem Performance Platinum 50-gallon natural gas water heater" />
             <Row>
@@ -362,6 +578,7 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
                         ...current,
                         specifications: { ...current.specifications, [field.key]: value },
                         provenance: { ...current.provenance, [`specifications.${field.key}`]: 'admin_entered' },
+                        provenanceSourceUrls: { ...current.provenanceSourceUrls, [`specifications.${field.key}`]: [] },
                     }))} />
                 ))}
                 {Object.entries(draft.specifications).filter(([key]) => !relevantFields.some((field) => field.key === key)).map(([key, value]) => (
@@ -369,6 +586,7 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
                         ...current,
                         specifications: { ...current.specifications, [key]: nextValue },
                         provenance: { ...current.provenance, [`specifications.${key}`]: 'admin_entered' },
+                        provenanceSourceUrls: { ...current.provenanceSourceUrls, [`specifications.${key}`]: [] },
                     }))} />
                 ))}
                 <Row>
@@ -435,9 +653,12 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(9) }}>
                 <ThemedButton title={saving ? 'Saving…' : isDirty ? 'Save Updated Draft' : 'Save Draft'} disabled={!adapter || !hasDraftContent || isBusy} onPress={() => void saveDraft()} style={{ flexGrow: 1 }} />
                 <ThemedButton title={approving ? 'Approving…' : 'Approve & Add to Catalog'} disabled={!adapter || !draftId || isDirty || !approvalIdentityReady || !imageReviewReady || hasCriticalWarnings || isBusy} onPress={() => void approve()} style={{ flexGrow: 1 }} />
-                <ThemedButton title="Cancel" variant="secondary" disabled={isBusy} onPress={onClose} style={{ flexGrow: 1 }} />
+                <ThemedButton title="Cancel" variant="secondary" disabled={isBusy} onPress={() => void closeBuilder()} style={{ flexGrow: 1 }} />
             </View>
             <View style={{ gap: scaleIcon(3) }}>
+                <Text selectable style={{ color: saving ? theme.colors.primary : isDirty || (hasDraftContent && !draftId) ? '#8A5400' : theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(17), fontWeight: '800' }}>
+                    {saving ? 'Saving draft…' : isDirty ? 'Unsaved changes' : draftId ? 'Saved' : hasDraftContent ? 'Not saved yet' : 'Start with a description or known item detail'}
+                </Text>
                 {!hasDraftContent && <Text selectable style={{ color: '#8A5400', fontSize: scaleFont(12), lineHeight: scaleFont(17) }}>Enter a description or any known product detail to save an incomplete draft for later research.</Text>}
                 {!identityReady && <Text selectable style={{ color: '#8A5400', fontSize: scaleFont(12), lineHeight: scaleFont(17) }}>Approval requires an existing category template, manufacturer, product or family name, and an exact model number.</Text>}
                 {identityReady && !modelVerifiedOrEntered && <Text selectable style={{ color: '#8A5400', fontSize: scaleFont(12), lineHeight: scaleFont(17) }}>Approval requires the exact model number to be verified by a source or entered by the Super Admin.</Text>}
@@ -463,34 +684,43 @@ function pickKnownFields(draft: AiCatalogItemDraft): AiCatalogResearchRequest['k
 
 function mergeResearchDraft(current: AiCatalogItemDraft, next: Partial<AiCatalogItemDraft>): AiCatalogItemDraft {
     const researchProvenance = next.provenance || {};
+    const researchProvenanceSourceUrls = next.provenanceSourceUrls || {};
     const mergeValue = <K extends 'manufacturer' | 'productName' | 'familyName' | 'modelNumber' | 'manufacturerPartNumber' | 'productUrl' | 'primaryItemType' | 'subtype' | 'categoryTemplateId' | 'system' | 'description'>(key: K) => {
         const existing = current[key];
         const nextValue = next[key];
         const currentOrigin = provenanceFor(current.provenance, key, snakeCase(key));
         const nextOrigin = provenanceFor(researchProvenance, key, snakeCase(key));
-        if (existing && currentOrigin === 'admin_entered') return { value: existing, provenance: currentOrigin };
-        if (nextValue) return { value: nextValue as AiCatalogItemDraft[K], provenance: nextOrigin || currentOrigin };
-        return { value: existing, provenance: currentOrigin };
+        const currentSourceUrls = provenanceUrlsFor(current.provenanceSourceUrls, key, snakeCase(key));
+        const nextSourceUrls = provenanceUrlsFor(researchProvenanceSourceUrls, key, snakeCase(key));
+        if (existing && currentOrigin === 'admin_entered') return { value: existing, provenance: currentOrigin, sourceUrls: [] };
+        if (nextValue) return { value: nextValue as AiCatalogItemDraft[K], provenance: nextOrigin || currentOrigin, sourceUrls: nextSourceUrls };
+        return { value: existing, provenance: currentOrigin, sourceUrls: currentSourceUrls };
     };
     const mergeSpecification = (key: string) => {
         const existing = current.specifications[key];
         const nextValue = next.specifications?.[key];
         const currentOrigin = provenanceFor(current.provenance, `specifications.${key}`);
         const nextOrigin = provenanceFor(researchProvenance, `specifications.${key}`);
-        if (existing && currentOrigin === 'admin_entered') return { value: existing, provenance: currentOrigin };
-        if (nextValue) return { value: nextValue, provenance: nextOrigin || currentOrigin };
-        return { value: existing, provenance: currentOrigin };
+        const provenanceKey = `specifications.${key}`;
+        const currentSourceUrls = provenanceUrlsFor(current.provenanceSourceUrls, provenanceKey);
+        const nextSourceUrls = provenanceUrlsFor(researchProvenanceSourceUrls, provenanceKey);
+        if (existing && currentOrigin === 'admin_entered') return { value: existing, provenance: currentOrigin, sourceUrls: [] };
+        if (nextValue) return { value: nextValue, provenance: nextOrigin || currentOrigin, sourceUrls: nextSourceUrls };
+        return { value: existing, provenance: currentOrigin, sourceUrls: currentSourceUrls };
     };
     const scalarKeys = ['manufacturer', 'productName', 'familyName', 'modelNumber', 'manufacturerPartNumber', 'productUrl', 'primaryItemType', 'subtype', 'categoryTemplateId', 'system', 'description'] as const;
-    const scalars = Object.fromEntries(scalarKeys.map((key) => [key, mergeValue(key)])) as Record<(typeof scalarKeys)[number], { value: string; provenance?: AiCatalogFieldProvenance }>;
+    const scalars = Object.fromEntries(scalarKeys.map((key) => [key, mergeValue(key)])) as Record<(typeof scalarKeys)[number], { value: string; provenance?: AiCatalogFieldProvenance; sourceUrls: string[] }>;
     const specificationEntries = Object.fromEntries(unique([...Object.keys(current.specifications), ...Object.keys(next.specifications || {})]).map((key) => [key, mergeSpecification(key)]));
     const provenance = { ...current.provenance, ...researchProvenance };
+    const provenanceSourceUrls = { ...current.provenanceSourceUrls, ...researchProvenanceSourceUrls };
     scalarKeys.forEach((key) => {
         const origin = scalars[key].provenance;
         if (origin) provenance[key] = origin;
+        provenanceSourceUrls[key] = scalars[key].sourceUrls;
     });
     Object.entries(specificationEntries).forEach(([key, entry]) => {
         if (entry.provenance) provenance[`specifications.${key}`] = entry.provenance;
+        provenanceSourceUrls[`specifications.${key}`] = entry.sourceUrls;
     });
     const sources = [...current.sources, ...(next.sources || [])].filter((source, index, items) => source.url && items.findIndex((candidate) => candidate.url === source.url) === index).slice(0, 4);
     const candidateImages = normalizeCandidateImages([
@@ -507,7 +737,7 @@ function mergeResearchDraft(current: AiCatalogItemDraft, next: Partial<AiCatalog
         parentPlacements: unique([...current.parentPlacements, ...(next.parentPlacements || [])]),
         tags: unique([...current.tags, ...(next.tags || [])]),
         specifications: Object.fromEntries(Object.entries(specificationEntries).filter(([, entry]) => entry.value).map(([key, entry]) => [key, entry.value])), sources, candidateImages,
-        provenance, warnings: unique([...(current.warnings || []), ...(next.warnings || [])]),
+        provenance, provenanceSourceUrls, warnings: unique([...(current.warnings || []), ...(next.warnings || [])]),
         criticalWarnings: unique([...(current.criticalWarnings || []), ...(next.criticalWarnings || [])]),
     };
 }
@@ -535,6 +765,40 @@ function canonicalUrl(value: string) {
 }
 function provenanceFor(provenance: Record<string, AiCatalogFieldProvenance>, ...keys: string[]) {
     return keys.map((key) => provenance[key]).find((value): value is AiCatalogFieldProvenance => Boolean(value));
+}
+function provenanceUrlsFor(provenanceSourceUrls: Record<string, string[]>, ...keys: string[]) {
+    const urls = keys.flatMap((key) => provenanceSourceUrls[key] || []);
+    return uniqueUrls(urls);
+}
+function normalizeProvenanceSourceUrls(value: unknown): Record<string, string[]> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, urls]) => [
+        key,
+        Array.isArray(urls) ? uniqueUrls(urls.filter((url): url is string => typeof url === 'string')) : [],
+    ]));
+}
+function removeDraftSource(draft: AiCatalogItemDraft, sourceId: string): AiCatalogItemDraft {
+    const removedUrl = draft.sources.find((source) => source.id === sourceId)?.url || '';
+    if (!removedUrl) return { ...draft, sources: draft.sources.filter((source) => source.id !== sourceId) };
+    const nextSourceUrls = Object.fromEntries(Object.entries(draft.provenanceSourceUrls).map(([key, urls]) => [
+        key,
+        urls.filter((url) => canonicalUrl(url) !== canonicalUrl(removedUrl)),
+    ]));
+    const provenance = { ...draft.provenance };
+    Object.entries(nextSourceUrls).forEach(([key, urls]) => {
+        if (provenance[key] === 'verified_source' && urls.length === 0) provenance[key] = 'unverified';
+    });
+    return {
+        ...draft,
+        sources: draft.sources.filter((source) => source.id !== sourceId),
+        provenance,
+        provenanceSourceUrls: nextSourceUrls,
+    };
+}
+function uniqueUrls(values: string[]) {
+    return values.map((value) => value.trim()).filter(Boolean).filter((value, index, items) => (
+        items.findIndex((candidate) => canonicalUrl(candidate) === canonicalUrl(value)) === index
+    ));
 }
 function snakeCase(value: string) { return value.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`).replace(/^_/, ''); }
 function fingerprintDraft(draft: AiCatalogItemDraft) { return stableStringify(draft); }

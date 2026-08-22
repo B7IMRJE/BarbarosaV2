@@ -1,9 +1,12 @@
 import * as ImagePicker from 'expo-image-picker';
 import {
     approveCatalogAiDraft,
+    listOpenCatalogAiDrafts,
+    loadCatalogAiDraft,
     researchCatalogItemWithAi,
     saveCatalogAiDraft,
 } from './catalogAiBuilder';
+import type { CatalogAiLoadedDraft } from './catalogAiDraftPersistenceCore';
 import {
     CATALOG_PRIMARY_ITEM_TYPES,
     curateCatalogAiSources,
@@ -37,7 +40,7 @@ type UiCandidateImage = {
     uploaded?: boolean;
 };
 
-type UiDraft = {
+export type CatalogAiBuilderUiDraft = {
     prompt: string;
     manufacturer: string;
     productName: string;
@@ -58,8 +61,17 @@ type UiDraft = {
     sources: UiSource[];
     candidateImages: UiCandidateImage[];
     provenance: Record<string, 'admin_entered' | 'verified_source' | 'ai_inferred' | 'unverified'>;
+    provenanceSourceUrls: Record<string, string[]>;
     warnings: string[];
     criticalWarnings: string[];
+};
+
+type UiDraft = CatalogAiBuilderUiDraft;
+
+export type CatalogAiAdapterSavedDraftSummary = {
+    draftId: string;
+    label: string;
+    updatedAt: string;
 };
 
 type UiResearchRequest = {
@@ -73,6 +85,39 @@ export function createCatalogAiBuilderAdapter(templates: AdapterTemplate[]) {
     let currentDraftId = '';
     const storedUploads = new Map<string, StoredCandidate>();
     return {
+        listDrafts: async (): Promise<CatalogAiAdapterSavedDraftSummary[]> => (await listOpenCatalogAiDrafts()).map((draft) => ({
+            draftId: draft.id,
+            label: [draft.manufacturer, draft.productName || draft.familyName, draft.modelNumber].filter(Boolean).join(' ')
+                || draft.categoryName
+                || 'Untitled AI catalog draft',
+            updatedAt: draft.updatedAt,
+        })),
+        loadDraft: async (draftId: string): Promise<{ draftId: string; draft: UiDraft }> => {
+            const saved = await loadCatalogAiDraft(draftId);
+            if (saved.status !== 'draft') throw new Error('Only an open AI catalog draft can be resumed.');
+            currentDraftId = saved.id;
+            storedUploads.clear();
+            saved.candidateImages.forEach((candidate) => {
+                if (!candidate.copiedBucket || !candidate.copiedStoragePath) return;
+                storedUploads.set(candidate.id, {
+                    id: candidate.id,
+                    imageUrl: candidate.imageUrl,
+                    copiedBucket: candidate.copiedBucket,
+                    copiedStoragePath: candidate.copiedStoragePath,
+                    fileName: candidate.fileName || candidate.title || 'Catalog image',
+                    mimeType: candidate.mimeType || 'image/jpeg',
+                    sizeBytes: candidate.sizeBytes ?? null,
+                });
+            });
+            const displayUrls = await loadDraftCandidateDisplayUrls(saved);
+            const draft = storedDraftToUiDraft(saved, displayUrls);
+            return { draftId: saved.id, draft };
+        },
+        startNewDraft: () => {
+            currentDraftId = '';
+            storedUploads.clear();
+            pendingUploadContext.draftId = '';
+        },
         research: async (request: UiResearchRequest): Promise<Partial<UiDraft>> => {
             const result = await researchCatalogItemWithAi({
                 prompt: [request.prompt.trim(), request.refinement.trim()].filter(Boolean).join('\n\nRequested revision: '),
@@ -144,7 +189,10 @@ function researchToUiDraft(result: CatalogAiResearchResult, templates: AdapterTe
         `specifications.${field.key}`,
         field.provenance.kind === 'verified' ? 'verified_source' : field.provenance.kind,
     ]));
-    const identityProvenance = result.sources.length && result.exactModelMatch ? 'verified_source' : 'unverified';
+    const provenanceSourceUrls = Object.fromEntries(result.fields.map((field) => [
+        `specifications.${field.key}`,
+        uniqueStrings(field.provenance.sourceUrls),
+    ]));
     const sources: UiSource[] = result.sources.map((source, index) => ({
         id: `research-source-${index}-${shortHash(source.url)}`,
         kind: ({
@@ -157,12 +205,38 @@ function researchToUiDraft(result: CatalogAiResearchResult, templates: AdapterTe
         title: source.title,
         url: source.url,
     }));
+    const officialProductUrl = result.sources.find((source) => source.sourceType === 'manufacturer_product')?.url || '';
+    const identityEntries = [
+        ['manufacturer', 'manufacturer', result.manufacturer],
+        ['productName', 'product_name', result.productName],
+        ['familyName', 'family_name', result.familyName],
+        ['modelNumber', 'model_number', result.modelNumber],
+        ['manufacturerPartNumber', 'manufacturer_part_number', result.manufacturerPartNumber],
+    ] as const;
+    identityEntries.forEach(([uiKey, fieldKey, value]) => {
+        const exact = researchEvidenceFor(result, fieldKey);
+        const sourceUrls = exact.sourceUrls.length
+            ? exact.sourceUrls
+            : !exact.hasMatch && result.exactModelMatch && officialProductUrl ? [officialProductUrl] : [];
+        provenance[uiKey] = value && sourceUrls.length
+            ? 'verified_source'
+            : exact.kind === 'ai_inferred' ? 'ai_inferred' : 'unverified';
+        provenanceSourceUrls[uiKey] = sourceUrls;
+    });
+    const descriptionEvidence = researchEvidenceFor(result, 'detailed_description', 'short_description', 'description');
+    provenance.description = descriptionEvidence.kind === 'verified' && descriptionEvidence.sourceUrls.length
+        ? 'verified_source'
+        : result.detailedDescription || result.shortDescription ? 'ai_inferred' : 'unverified';
+    provenanceSourceUrls.description = descriptionEvidence.sourceUrls;
+    provenance.productUrl = officialProductUrl ? 'verified_source' : 'unverified';
+    provenanceSourceUrls.productUrl = officialProductUrl ? [officialProductUrl] : [];
     return {
         manufacturer: result.manufacturer,
         productName: result.productName,
         familyName: result.familyName,
         modelNumber: result.modelNumber,
         manufacturerPartNumber: result.manufacturerPartNumber,
+        productUrl: officialProductUrl,
         primaryItemType: result.primaryItemType,
         subtype: result.subtype,
         categoryTemplateId: template?.id || current.categoryTemplateId,
@@ -183,14 +257,11 @@ function researchToUiDraft(result: CatalogAiResearchResult, templates: AdapterTe
         })),
         provenance: {
             ...provenance,
-            manufacturer: identityProvenance,
-            productName: identityProvenance,
-            familyName: identityProvenance,
-            modelNumber: identityProvenance,
-            manufacturerPartNumber: identityProvenance,
             primaryItemType: result.primaryItemType ? 'ai_inferred' : 'unverified',
             subtype: result.subtype ? 'ai_inferred' : 'unverified',
+            system: result.system ? 'ai_inferred' : 'unverified',
         },
+        provenanceSourceUrls,
         warnings: result.warnings,
         criticalWarnings: [
             !result.modelNumber ? 'A verified or administrator-entered model number is required before approval.' : '',
@@ -202,7 +273,7 @@ function researchToUiDraft(result: CatalogAiResearchResult, templates: AdapterTe
 
 async function uiDraftToPayload(draft: UiDraft, storedUploads: Map<string, StoredCandidate>): Promise<CatalogAiDraftPayload> {
     const curatedSources = curateCatalogAiSources([...(draft.productUrl.trim() ? [{
-        title: 'Administrator-entered official product page',
+        title: 'Official product page',
         url: draft.productUrl.trim(),
         source_type: 'manufacturer_product',
     } as const] : []), ...draft.sources.map((source) => ({
@@ -217,14 +288,10 @@ async function uiDraftToPayload(draft: UiDraft, storedUploads: Map<string, Store
             other: '',
         } as const)[source.kind],
     }))]);
-    const sourceUrls = curatedSources.map((source) => source.url);
+    const curatedSourceUrls = new Map(curatedSources.map((source) => [canonicalUrl(source.url), source.url]));
     const fieldProvenance = Object.fromEntries(Object.entries(draft.provenance).map(([key, kind]) => [
         uiKeyToDbKey(key),
-        {
-            kind: kind === 'verified_source' ? 'verified' : kind,
-            sourceUrls: kind === 'verified_source' ? sourceUrls : [],
-            note: '',
-        } satisfies CatalogFieldProvenance,
+        toPayloadProvenance(kind, provenanceUrlsForDraft(draft, key), curatedSourceUrls),
     ]));
     const uploaded = await Promise.all(draft.candidateImages.map(async (candidate) => {
         if (!candidate.uploaded) return null;
@@ -284,6 +351,8 @@ async function uiDraftToPayload(draft: UiDraft, storedUploads: Map<string, Store
         missingFields,
         researchMetadata: {
             prompt: draft.prompt.trim(),
+            admin_notes: draft.notes.trim(),
+            system: draft.system.trim(),
             advisory_warnings: draft.warnings,
             normal_catalog_views_run_research: false,
         },
@@ -299,6 +368,90 @@ type StoredCandidate = {
     mimeType: string;
     sizeBytes: number | null;
 };
+
+function storedDraftToUiDraft(saved: CatalogAiLoadedDraft, displayUrls: Map<string, string>): UiDraft {
+    const payload = saved.payload;
+    const productUrl = payload.sources.find((source) => source.sourceType === 'manufacturer_product')?.url || '';
+    const provenance = Object.fromEntries(Object.entries(payload.fieldProvenance).map(([key, value]) => [
+        dbKeyToUiKey(key),
+        value.kind === 'verified' ? 'verified_source' : value.kind,
+    ])) as UiDraft['provenance'];
+    const provenanceSourceUrls = Object.fromEntries(Object.entries(payload.fieldProvenance).map(([key, value]) => [
+        dbKeyToUiKey(key),
+        uniqueStrings(value.sourceUrls),
+    ]));
+    const metadata = payload.researchMetadata;
+    const prompt = readMetadataText(metadata.prompt);
+    const notes = readMetadataText(metadata.admin_notes);
+    const warnings = readMetadataStrings(metadata.advisory_warnings);
+    const specifications = { ...payload.specifications };
+    delete specifications.product_name;
+    const candidateImages = saved.candidateImages.map((candidate) => ({
+        id: candidate.id,
+        url: displayUrls.get(candidate.id) || candidate.imageUrl,
+        label: candidate.title || candidate.altText || candidate.fileName || 'Candidate product image',
+        sourceUrl: candidate.sourceUrl,
+        selected: candidate.selected,
+        primary: candidate.primary,
+        uploaded: Boolean(candidate.copiedBucket && candidate.copiedStoragePath),
+    }));
+    return {
+        prompt,
+        manufacturer: payload.manufacturer,
+        productName: payload.productName,
+        familyName: payload.familyName,
+        modelNumber: payload.modelNumber,
+        manufacturerPartNumber: payload.manufacturerPartNumber,
+        productUrl,
+        notes,
+        primaryItemType: payload.primaryItemType,
+        subtype: payload.subtype,
+        categoryTemplateId: saved.categoryTemplateId || payload.categoryTemplateId,
+        system: readMetadataText(metadata.system) || payload.placements.find((placement) => placement.systemKey)?.systemKey || '',
+        suggestedAreas: uniqueStrings(payload.placements.map((placement) => placement.areaKey)),
+        parentPlacements: uniqueStrings(payload.placements.map((placement) => placement.parentSubtype)),
+        tags: payload.tags,
+        description: payload.description,
+        specifications,
+        sources: payload.sources.map((source, index) => ({
+            id: `saved-source-${index}-${shortHash(source.url)}`,
+            kind: ({
+                manufacturer_product: 'product_page',
+                installation_manual: 'installation_manual',
+                owner_manual: 'owner_manual',
+                specification_sheet: 'specification_sheet',
+                warranty_document: 'warranty',
+            } as const)[source.sourceType],
+            title: source.title,
+            url: source.url,
+        })),
+        candidateImages,
+        provenance,
+        provenanceSourceUrls,
+        warnings,
+        criticalWarnings: [
+            ...payload.validationWarnings,
+            !saved.categoryTemplateId && !payload.categoryTemplateId ? 'Catalog category is required before approval.' : '',
+            !payload.modelNumber ? 'A verified or administrator-entered model number is required before approval.' : '',
+            !payload.manufacturer ? 'Manufacturer is required before approval.' : '',
+            !payload.productName && !payload.familyName ? 'Product or family name is required before approval.' : '',
+            !payload.primaryItemType ? 'Primary item type is required before approval.' : '',
+            !payload.subtype ? 'Subtype is required before approval.' : '',
+        ].filter(Boolean),
+    };
+}
+
+async function loadDraftCandidateDisplayUrls(saved: CatalogAiLoadedDraft) {
+    const entries = await Promise.all(saved.candidateImages.map(async (candidate) => {
+        if (!candidate.copiedBucket || !candidate.copiedStoragePath) return null;
+        const { data, error } = await supabase.storage
+            .from(candidate.copiedBucket)
+            .createSignedUrl(candidate.copiedStoragePath, 60 * 60);
+        if (error || !data?.signedUrl) return null;
+        return [candidate.id, data.signedUrl] as const;
+    }));
+    return new Map(entries.filter(isPresent));
+}
 
 async function persistUploadedCandidate(candidate: UiCandidateImage): Promise<StoredCandidate> {
     // Draft uploads require a saved draft path. They are uploaded during the second
@@ -343,8 +496,63 @@ function asPrimaryItemType(value: string): CatalogPrimaryItemType | '' {
 
 function uiKeyToDbKey(value: string) {
     const direct = ({ modelNumber: 'model_number', productName: 'product_name', familyName: 'family_name',
-        manufacturerPartNumber: 'manufacturer_part_number', primaryItemType: 'primary_item_type' } as Record<string, string>)[value];
+        manufacturerPartNumber: 'manufacturer_part_number', productUrl: 'product_url', primaryItemType: 'primary_item_type' } as Record<string, string>)[value];
     return direct || value.replace(/^specifications\./, '');
+}
+
+function researchEvidenceFor(result: CatalogAiResearchResult, ...fieldKeys: string[]) {
+    const requested = new Set(fieldKeys.map(normalizeFieldKey));
+    const matches = result.fields.filter((field) => requested.has(normalizeFieldKey(field.key)));
+    const sourceUrls = uniqueStrings(matches.flatMap((field) => field.provenance.sourceUrls));
+    const kind = matches.some((field) => field.provenance.kind === 'verified' && field.provenance.sourceUrls.length)
+        ? 'verified'
+        : matches.some((field) => field.provenance.kind === 'ai_inferred') ? 'ai_inferred' : 'unverified';
+    return { kind, sourceUrls, hasMatch: matches.length > 0 } as const;
+}
+
+function provenanceUrlsForDraft(draft: UiDraft, uiKey: string) {
+    const dbKey = uiKeyToDbKey(uiKey);
+    const canonicalUiKey = dbKeyToUiKey(dbKey);
+    return uniqueStrings([
+        ...(draft.provenanceSourceUrls[uiKey] || []),
+        ...(draft.provenanceSourceUrls[dbKey] || []),
+        ...(draft.provenanceSourceUrls[canonicalUiKey] || []),
+    ]);
+}
+
+function toPayloadProvenance(
+    kind: UiDraft['provenance'][string],
+    exactSourceUrls: string[],
+    curatedSourceUrls: Map<string, string>,
+): CatalogFieldProvenance {
+    const sourceUrls = uniqueStrings(exactSourceUrls)
+        .map((url) => curatedSourceUrls.get(canonicalUrl(url)) || '')
+        .filter(Boolean);
+    if (kind === 'verified_source') return sourceUrls.length
+        ? { kind: 'verified', sourceUrls, note: '' }
+        : { kind: 'unverified', sourceUrls: [], note: 'The supporting source is no longer in the reviewed source set.' };
+    return { kind, sourceUrls: [], note: '' };
+}
+
+function normalizeFieldKey(value: string) {
+    return value.trim().replace(/^specifications\./, '').replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`).replace(/^_/, '').toLowerCase();
+}
+
+function dbKeyToUiKey(value: string) {
+    const direct = ({ model_number: 'modelNumber', product_name: 'productName', family_name: 'familyName',
+        manufacturer_part_number: 'manufacturerPartNumber', primary_item_type: 'primaryItemType',
+        product_url: 'productUrl' } as Record<string, string>)[value];
+    if (direct) return direct;
+    if (['manufacturer', 'subtype', 'system', 'suggestedAreas', 'parentPlacements', 'tags'].includes(value)) return value;
+    return `specifications.${value}`;
+}
+
+function readMetadataText(value: unknown) {
+    return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
+function readMetadataStrings(value: unknown) {
+    return Array.isArray(value) ? value.map(readMetadataText).filter(Boolean) : [];
 }
 
 function readId(value: unknown, key: string) {
@@ -359,6 +567,18 @@ function same(a: string, b: string) {
 
 function uniqueStrings(values: string[]) {
     return [...new Map(values.map((value) => value.trim()).filter(Boolean).map((value) => [value.toLowerCase(), value])).values()];
+}
+
+function canonicalUrl(value: string) {
+    try {
+        const url = new URL(value.trim());
+        url.hash = '';
+        url.hostname = url.hostname.toLowerCase();
+        url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+        return url.toString().toLowerCase();
+    } catch {
+        return value.trim().toLowerCase();
+    }
 }
 
 function shortHash(value: string) {
