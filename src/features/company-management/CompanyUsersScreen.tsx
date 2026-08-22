@@ -45,6 +45,7 @@ import {
     normalizeCompanyRole,
     normalizeCompanyStatus,
     resolveCompanyPermissions,
+    SALES_TECH_REQUIRED_PERMISSION_KEYS,
     SALES_TECH_RESTRICTED_PERMISSION_KEYS,
     type CompanyPermissionKey,
     type CompanyPermissionSet,
@@ -456,7 +457,10 @@ export default function CompanyUsersScreen() {
     function toggleRolePermission(permissionKey: CompanyPermissionKey, enabled: boolean) {
         if (
             selectedPermissionRole === 'sales' &&
-            SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey)
+            (
+                SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey) ||
+                SALES_TECH_REQUIRED_PERMISSION_KEYS.includes(permissionKey)
+            )
         ) {
             return;
         }
@@ -1214,6 +1218,8 @@ export default function CompanyUsersScreen() {
                                             const enabled = rolePermissions[selectedPermissionRole][permissionKey];
                                             const salesRestricted = selectedPermissionRole === 'sales' &&
                                                 SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey);
+                                            const salesRequired = selectedPermissionRole === 'sales' &&
+                                                SALES_TECH_REQUIRED_PERMISSION_KEYS.includes(permissionKey);
 
                                             return (
                                                 <View
@@ -1233,11 +1239,12 @@ export default function CompanyUsersScreen() {
                                                         <Text style={[permissionToggleHintStyle, { color: theme.colors.mutedText }]}>
                                                             {COMPANY_PERMISSION_DESCRIPTIONS[permissionKey]}
                                                             {salesRestricted ? ' Sales Techs are always denied this management capability.' : ''}
+                                                            {salesRequired ? ' Sales Techs always retain this estimate-authoring capability.' : ''}
                                                         </Text>
                                                     </View>
                                                     <Switch
                                                         value={enabled}
-                                                        disabled={salesRestricted}
+                                                        disabled={salesRestricted || salesRequired}
                                                         onValueChange={(value) => toggleRolePermission(permissionKey, value)}
                                                         trackColor={{
                                                             false: theme.colors.border,
@@ -3150,10 +3157,11 @@ async function loadCompanyRolePermissionProfiles(
 
         if (!CUSTOMIZABLE_ROLE_OPTIONS.some((option) => option.value === profileRole)) return;
 
-        profiles[profileRole] = {
-            ...getRoleDefaultPermissions(profileRole),
-            ...(readPermissionOverrides(record, 'permissions') || {}),
-        };
+        profiles[profileRole] = resolveCompanyPermissions({
+            role: profileRole,
+            status: 'active',
+            permissions: readPermissionOverrides(record, 'permissions'),
+        });
     });
 
     return { profiles, canCustomize: true };

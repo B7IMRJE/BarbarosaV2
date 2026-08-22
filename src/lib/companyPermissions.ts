@@ -90,6 +90,11 @@ export const SALES_TECH_RESTRICTED_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_manage_company_profile',
 ];
 
+export const SALES_TECH_REQUIRED_PERMISSION_KEYS: CompanyPermissionKey[] = [
+    'can_create_estimates',
+    'can_add_item_to_estimate',
+];
+
 const DISPATCH_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: false,
@@ -532,6 +537,8 @@ function enforceCompanyRoleRestrictions(
 
     return {
         ...permissions,
+        can_create_estimates: true,
+        can_add_item_to_estimate: true,
         can_manage_price_book: false,
         can_manage_company_users: false,
         can_manage_company_profile: false,
