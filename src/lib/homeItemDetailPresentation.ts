@@ -1,6 +1,18 @@
 import type { HomeItemHierarchyRecord } from './homeItemHierarchy';
 import { resolveHomeItemCardDetails } from './homeItemDisplay';
 
+export function initialUniversalHomeItemActionGroups() {
+    return {
+        components: true,
+        maintenance: false,
+        estimate: false,
+        provider: false,
+        catalog: false,
+        media: false,
+        item: false,
+    } as const;
+}
+
 /**
  * The permanent, shared item identity shown by every HomeOS and provider item
  * route. Property-specific history and actions remain outside this card.

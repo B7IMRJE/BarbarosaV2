@@ -131,7 +131,10 @@ import {
     type HomeItemLifetimeHistoryMedia,
 } from '../../lib/home-item-closeout';
 import type { HomeItemCatalogProposal } from '../../lib/home-item-catalog';
-import { resolveUniversalHomeItemDetailFields } from '../../lib/homeItemDetailPresentation';
+import {
+    initialUniversalHomeItemActionGroups,
+    resolveUniversalHomeItemDetailFields,
+} from '../../lib/homeItemDetailPresentation';
 import {
     EquipmentContainer,
     EquipmentDetailHeader,
@@ -675,15 +678,9 @@ export default function ItemScreen() {
     const [providerRelatedCategory, setProviderRelatedCategory] = useState('');
     const [providerRelatedLocation, setProviderRelatedLocation] = useState('');
     const [providerRelatedNotes, setProviderRelatedNotes] = useState('');
-    const [expandedActionGroups, setExpandedActionGroups] = useState<Record<ItemActionGroupKey, boolean>>({
-        components: false,
-        maintenance: false,
-        estimate: false,
-        provider: false,
-        catalog: false,
-        media: false,
-        item: false,
-    });
+    const [expandedActionGroups, setExpandedActionGroups] = useState<Record<ItemActionGroupKey, boolean>>(
+        initialUniversalHomeItemActionGroups
+    );
     const loadItemEvent = useEffectEvent(loadItem);
     const refreshProviderStagedEntriesEvent = useEffectEvent(refreshProviderStagedEntries);
     const openProviderEditEvent = useEffectEvent(() => openProviderPanel('edit'));
