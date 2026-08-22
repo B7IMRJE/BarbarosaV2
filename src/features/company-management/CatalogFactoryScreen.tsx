@@ -64,6 +64,7 @@ import {
     catalogFieldLabel,
     catalogSpecificationDisplays,
 } from '../../lib/catalogFactoryPresentation';
+import { createCatalogAiBuilderAdapter } from '../../lib/catalogAiBuilderAdapter';
 import {
     catalogBrandSuggestions,
     catalogCategorySuggestions,
@@ -88,6 +89,7 @@ import {
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 import CompactHomeOSCard from '../homeos-items/compact-homeos-card';
+import AiCatalogItemBuilder from './AiCatalogItemBuilder';
 import {
     addHomeOSStarterCardVariantMapping,
     loadHomeOSStarterCardDeck,
@@ -97,7 +99,7 @@ import {
     type HomeOSStarterDeckReadiness,
 } from '../../lib/homeosStarterCatalog';
 
-type FactoryMode = 'overview' | 'template' | 'seed' | 'import' | 'review' | 'prices' | 'history';
+type FactoryMode = 'overview' | 'template' | 'seed' | 'ai' | 'import' | 'review' | 'prices' | 'history';
 
 const emptyTemplate = {
     templateKey: '', categoryName: '', description: '', universalFields: 'manufacturer, brand, family_name, model_number, manufacturer_part_number, upc_gtin',
@@ -150,6 +152,7 @@ export default function CatalogFactoryScreen() {
     const [starterVariantIds, setStarterVariantIds] = useState<string[]>([]);
     const [starterReadiness, setStarterReadiness] = useState<HomeOSStarterDeckReadiness>('unbuilt');
     const [starterNotes, setStarterNotes] = useState('');
+    const [aiCatalogAdapter, setAiCatalogAdapter] = useState(() => createCatalogAiBuilderAdapter([]));
 
     useEffect(() => {
         void initialize();
@@ -689,6 +692,10 @@ export default function CatalogFactoryScreen() {
                 <Notice message={message} />
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
                     <Action title="New Template" onPress={() => setMode('template')} />
+                    <Action title="Create Catalog Item with AI" onPress={() => {
+                        setAiCatalogAdapter(createCatalogAiBuilderAdapter(templates));
+                        setMode('ai');
+                    }} />
                     <Action title="New Seed Record" onPress={() => setMode('seed')} />
                     <Action title="Import Catalog Batch" onPress={() => setMode('import')} />
                     <Action title="Review Drafts" onPress={() => setMode('review')} />
@@ -700,6 +707,16 @@ export default function CatalogFactoryScreen() {
                 </View>
 
                 {mode === 'template' && <TemplateEditor draft={templateDraft} setDraft={setTemplateDraft} busy={busy} onSave={() => void createTemplate()} onCancel={() => setMode('overview')} />}
+                {mode === 'ai' && <AiCatalogItemBuilder
+                    templates={templates}
+                    adapter={aiCatalogAdapter}
+                    busy={busy}
+                    onClose={() => setMode('overview')}
+                    onApproved={() => {
+                        setMode('overview');
+                        void refresh();
+                    }}
+                />}
                 {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); setSeedResearchApplyMessage(''); }} templates={templates} records={deckRecords} starterCards={starterCards} busy={busy} researching={researchingSeed} research={seedResearch} researchApplyMessage={seedResearchApplyMessage} saveError={seedSaveError} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).templateKey} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); }} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); setSeedSaveError(''); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
