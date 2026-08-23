@@ -85,11 +85,13 @@ export function buildEstimateJobWorkflowRoute({
     mode,
     returnTo,
     companyId,
+    presentation = false,
 }: {
     estimateSessionId: string;
     mode?: string | null;
     returnTo?: string | null;
     companyId?: string | null;
+    presentation?: boolean;
 }) {
     const techOSReturnTo = resolveTechOSEstimateReturnRoute({ mode, returnTo, companyId });
 
@@ -97,6 +99,7 @@ export function buildEstimateJobWorkflowRoute({
         pathname: '/job-workflow',
         params: compactRouteParams({
             estimateSessionId,
+            presentation: presentation ? '1' : null,
             source: techOSReturnTo ? 'techos' : null,
             returnTo: techOSReturnTo,
         }),

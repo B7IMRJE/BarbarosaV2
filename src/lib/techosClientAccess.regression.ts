@@ -95,6 +95,15 @@ function estimateApprovalPreservesTechOSReturnContext() {
     assert(route.params.estimateSessionId === 'estimate-session-1', 'Homeowner approval should preserve the estimate session.');
     assert(route.params.source === 'techos', 'TechOS homeowner approval should identify TechOS as its source.');
     assert(route.params.returnTo === '/techos?companyId=company-1&slotId=slot-1', 'TechOS homeowner approval should preserve its dashboard return route.');
+
+    const presentationRoute = buildEstimateJobWorkflowRoute({
+        estimateSessionId: 'estimate-session-1',
+        mode: 'techos',
+        returnTo: '/techos?companyId=company-1&slotId=slot-1',
+        companyId: 'company-1',
+        presentation: true,
+    });
+    assert(presentationRoute.params.presentation === '1', 'Present should open Job Workflow in homeowner presentation mode instead of the dashboard workflow.');
 }
 
 function nonTechOSEstimateApprovalOmitsTechOSReturnContext() {
