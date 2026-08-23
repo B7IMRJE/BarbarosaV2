@@ -389,6 +389,7 @@ export default function CompanyClientItemsScreen() {
                 companyId: estimateAccess.companyId,
                 propertyId: clientPropertyId,
                 itemSlug: item.item_slug || item.id,
+                estimateSessionId: sessionResult.session.id,
                 mode: 'management',
             },
         } as never);
