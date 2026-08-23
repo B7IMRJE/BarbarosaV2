@@ -813,21 +813,33 @@ export default function EstimateScreen() {
             return;
         }
 
+        // Opening a different HomeOS item starts that item's estimate flow. Do not
+        // hydrate the previous item's builder snapshot into the new questionnaire;
+        // saved drafts remain available through their explicit estimate session.
+        const serverDraftMatchesRequestedItem = !requestedItemSlug || !serverDraft?.homeItemId ||
+            String(serverDraft.homeItemId) === String(requestedItemSlug);
+        const restoringRequestedDraft = Boolean(requestedEstimateSessionId) && serverDraftMatchesRequestedItem;
+        if (serverDraft && !restoringRequestedDraft) {
+            serverDraft = null;
+        }
+
         const persistedBuilderState = serverDraft && hasEstimateBuilderSnapshot(serverDraft.builderState)
             ? readPersistedEstimateBuilderState(serverDraft.builderState)
             : null;
-        const draftItems = persistedBuilderState?.items || localDraftItems;
+        const draftItems = restoringRequestedDraft && persistedBuilderState?.items
+            ? persistedBuilderState.items
+            : localDraftItems;
         const nextDraftContext = persistedBuilderState?.draftContext
-            || localDraftContext
+            || ((!requestedItemSlug || requestedEstimateSessionId) ? localDraftContext : null)
             || (serverDraft ? buildDraftContextFromServerDraft(serverDraft, access.companyUserId) : null);
         const inferredCategory = inferEstimateCategoryForDraftItem(
             draftItems,
             requestedItemSlug,
             nextDraftContext
         );
-        const restoredCategory = readEstimateOptionCategory(
+        const restoredCategory = restoringRequestedDraft ? readEstimateOptionCategory(
             persistedBuilderState?.selectedCategory || nextDraftContext?.estimate_category
-        );
+        ) : null;
         const activeCategory = restoredCategory || inferredCategory;
         const initialSelection = resolveInitialEstimateCategorySelection(
             draftItems,

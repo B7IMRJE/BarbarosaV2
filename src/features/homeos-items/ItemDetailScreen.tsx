@@ -3017,6 +3017,7 @@ export default function ItemScreen() {
                 pathname: '/estimate/workspace',
                 params: {
                     itemSlug: item.item_slug || String(slug),
+                    estimateSessionId: sessionResult.session.id,
                     ...providerModeQueryParams(providerModeContext),
                 },
             } as any);
@@ -3034,6 +3035,7 @@ export default function ItemScreen() {
                 companyId: estimateCompanyId,
                 propertyId: estimatePropertyId,
                 itemSlug: item.item_slug || String(slug),
+                estimateSessionId: sessionResult.session.id,
                 step: isWaterHeaterItem ? 'findings' : undefined,
                 mode: isManagementMode ? 'management' : '',
             },
