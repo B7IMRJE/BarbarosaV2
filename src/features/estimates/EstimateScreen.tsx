@@ -820,10 +820,15 @@ export default function EstimateScreen() {
             ? readPersistedEstimateBuilderState(serverDraft.builderState)
             : null;
         const serverDraftContainsRequestedItem = !requestedItemSlug ||
-            Boolean(serverDraft?.homeItemId && String(serverDraft.homeItemId) === String(requestedItemSlug)) ||
-            Boolean(persistedBuilderState?.items?.some((item) =>
-                item.item_slug === requestedItemSlug || item.id === requestedItemSlug
-            ));
+            (serverDraft?.homeItemId
+                ? String(serverDraft.homeItemId) === String(requestedItemSlug)
+                    || Boolean(persistedBuilderState?.items?.some((item) =>
+                        String(item.id) === String(serverDraft?.homeItemId)
+                        && String(item.item_slug) === String(requestedItemSlug)
+                    ))
+                : Boolean(persistedBuilderState?.items?.some((item) =>
+                    item.item_slug === requestedItemSlug || item.id === requestedItemSlug
+                )));
         const restoringRequestedDraft = Boolean(requestedEstimateSessionId) && serverDraftContainsRequestedItem;
         if (serverDraft && !restoringRequestedDraft) {
             serverDraft = null;
