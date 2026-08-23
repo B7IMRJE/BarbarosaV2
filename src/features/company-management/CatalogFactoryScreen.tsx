@@ -23,6 +23,7 @@ import {
     duplicateCatalogFactoryProduct,
     importCatalogDrafts,
     loadCatalogFactory,
+    removeCatalogFactoryPhoto,
     reviewCatalogDraft,
     saveCatalogFactoryProduct,
     saveCatalogTemplate,
@@ -37,6 +38,7 @@ import {
     type CatalogImportSummary,
     type CatalogSourceDraft,
 } from '../../lib/catalogFactory';
+import { reconcileCatalogFactoryMediaRemoval } from '../../lib/catalogFactoryMediaCore';
 import {
     CATALOG_FINISH_OPTIONS,
     catalogFinishOption,
@@ -609,8 +611,8 @@ export default function CatalogFactoryScreen() {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: false,
-            allowsMultipleSelection: true,
-            selectionLimit: 0,
+            allowsMultipleSelection: false,
+            selectionLimit: 1,
             quality: 0.9,
         });
         if (result.canceled || !result.assets.length) return;
@@ -660,6 +662,24 @@ export default function CatalogFactoryScreen() {
         finally { setBusy(false); }
     }
 
+    async function removeMasterMedia(asset: CatalogFactoryAsset) {
+        if (!editing || asset.productVariantId !== editing.id) return;
+        setBusy(true);
+        setMessage(`Removing ${asset.fileName} from this master product...`);
+        try {
+            const result = await removeCatalogFactoryPhoto({
+                variantId: editing.id,
+                assetId: asset.id,
+            });
+            removeEditingAsset(result.assetId, result.primaryAssetId);
+            setMessage(result.storageCleanupWarning || `${asset.fileName} was removed from this master product.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
     function replaceEditingAsset(asset: CatalogFactoryAsset) {
         const apply = (record: CatalogFactoryRecord) => {
             const assets = record.assets.some((item) => item.id === asset.id)
@@ -674,6 +694,20 @@ export default function CatalogFactoryScreen() {
         setEditing((current) => current && current.id === asset.productVariantId ? apply(current) : current);
         setRecords((current) => current.map((record) => record.id === asset.productVariantId ? apply(record) : record));
         setDeckRecords((current) => current.map((record) => record.id === asset.productVariantId ? apply(record) : record));
+    }
+
+    function removeEditingAsset(assetId: string, primaryAssetId: string | null) {
+        if (!editing) return;
+        const productVariantId = editing.id;
+        const apply = (record: CatalogFactoryRecord) => {
+            const assets = reconcileCatalogFactoryMediaRemoval(record.assets, assetId, primaryAssetId);
+            const primary = assets.find((item) => item.active && item.assetType === 'image' && item.isPrimary)
+                || assets.find((item) => item.active && item.assetType === 'image');
+            return { ...record, assets, primaryImageUrl: primary?.displayUrl || '' };
+        };
+        setEditing((current) => current && current.id === productVariantId ? apply(current) : current);
+        setRecords((current) => current.map((record) => record.id === productVariantId ? apply(record) : record));
+        setDeckRecords((current) => current.map((record) => record.id === productVariantId ? apply(record) : record));
     }
 
     const displayedRecords = useMemo(() => {
@@ -813,7 +847,7 @@ export default function CatalogFactoryScreen() {
                     message={message}
                     onClose={() => { setEditing(null); setEditDraft(null); }}
                 >
-                    <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} records={deckRecords} starterCards={starterCards} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).id} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />
+                    <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} records={deckRecords} starterCards={starterCards} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).id} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onRemoveMedia={(asset) => void removeMasterMedia(asset)} onCancel={() => { setEditing(null); setEditDraft(null); }} />
                 </CatalogFactoryEditModal>
             )}
         </View>
@@ -1706,6 +1740,7 @@ function EditPanel({
     onUploadPhoto,
     onUploadDocument,
     onChangeMedia,
+    onRemoveMedia,
     onCancel,
 }: {
     record: CatalogFactoryRecord;
@@ -1728,6 +1763,7 @@ function EditPanel({
     onUploadPhoto: () => void;
     onUploadDocument: (type: Exclude<CatalogFactoryAssetType, 'image'>) => void;
     onChangeMedia: (asset: CatalogFactoryAsset, patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) => void;
+    onRemoveMedia: (asset: CatalogFactoryAsset) => void;
     onCancel: () => void;
 }) {
     const { width } = useWindowDimensions();
@@ -1743,6 +1779,7 @@ function EditPanel({
     const [showApplications, setShowApplications] = useState(false);
     const [showWarranty, setShowWarranty] = useState(false);
     const [showDuplicateMerge, setShowDuplicateMerge] = useState(false);
+    const [pendingMediaRemovalId, setPendingMediaRemovalId] = useState('');
     const productName = draft.productTitle || [draft.brand, draft.familyName, draft.modelNumber].filter(Boolean).join(' ');
     const specificationEntries = Object.entries(draft.specifications);
     const finishOption = catalogFinishOption(draft.finish);
@@ -1815,7 +1852,20 @@ function EditPanel({
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(9), alignItems: 'stretch' }}>
                         {photoAssets.map((asset) => (
                             <View key={asset.id} style={{ width: phone ? '100%' : '48%', minWidth: phone ? 0 : 280, flexGrow: 1 }}>
-                                <MediaTile asset={asset} productName={productName} busy={busy} phone={phone} onChange={(patch) => onChangeMedia(asset, patch)} />
+                                <MediaTile
+                                    asset={asset}
+                                    productName={productName}
+                                    busy={busy}
+                                    phone={phone}
+                                    confirmingRemoval={pendingMediaRemovalId === asset.id}
+                                    onChange={(patch) => onChangeMedia(asset, patch)}
+                                    onRequestRemove={() => setPendingMediaRemovalId(asset.id)}
+                                    onCancelRemove={() => setPendingMediaRemovalId('')}
+                                    onConfirmRemove={() => {
+                                        setPendingMediaRemovalId('');
+                                        onRemoveMedia(asset);
+                                    }}
+                                />
                             </View>
                         ))}
                         {!photoAssets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No product photos have been uploaded yet.</Text>}
@@ -1827,7 +1877,21 @@ function EditPanel({
                     </View>
                     <CompactDisclosureCard title={`Manuals & Reference Files (${referenceAssets.length})`} summary="Uploaded manuals, specification sheets, warranties, and other reference files" expanded={showReferenceMedia} onToggle={() => setShowReferenceMedia(!showReferenceMedia)}>
                         {referenceAssets.map((asset) => (
-                            <MediaTile key={asset.id} asset={asset} productName={productName} busy={busy} phone={phone} onChange={(patch) => onChangeMedia(asset, patch)} />
+                            <MediaTile
+                                key={asset.id}
+                                asset={asset}
+                                productName={productName}
+                                busy={busy}
+                                phone={phone}
+                                confirmingRemoval={pendingMediaRemovalId === asset.id}
+                                onChange={(patch) => onChangeMedia(asset, patch)}
+                                onRequestRemove={() => setPendingMediaRemovalId(asset.id)}
+                                onCancelRemove={() => setPendingMediaRemovalId('')}
+                                onConfirmRemove={() => {
+                                    setPendingMediaRemovalId('');
+                                    onRemoveMedia(asset);
+                                }}
+                            />
                         ))}
                         {!referenceAssets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No reference files have been uploaded yet.</Text>}
                     </CompactDisclosureCard>
@@ -2170,11 +2234,11 @@ function CompactFieldBox(props: Parameters<typeof CompactField>[0]) {
     return <View style={{ flex: 1, minWidth: 180 }}><CompactField {...props} /></View>;
 }
 
-function CompactButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+function CompactButton({ title, onPress, disabled, destructive = false }: { title: string; onPress: () => void; disabled?: boolean; destructive?: boolean }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return (
-        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: scaleIcon(11), paddingVertical: scaleIcon(7), backgroundColor: theme.colors.surface, opacity: disabled ? 0.55 : 1 }}>
-            <Text style={{ color: theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textAlign: 'center' }}>{title}</Text>
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: destructive ? theme.colors.danger : theme.colors.border, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: scaleIcon(11), paddingVertical: scaleIcon(7), backgroundColor: theme.colors.surface, opacity: disabled ? 0.55 : 1 }}>
+            <Text style={{ color: destructive ? theme.colors.danger : theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textAlign: 'center' }}>{title}</Text>
         </TouchableOpacity>
     );
 }
@@ -2214,7 +2278,27 @@ function ReferenceTile({ source, index, busy, onChange, onRemove }: { source: Ca
     );
 }
 
-function MediaTile({ asset, productName, busy, phone, onChange }: { asset: CatalogFactoryAsset; productName: string; busy: boolean; phone: boolean; onChange: (patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) => void }) {
+function MediaTile({
+    asset,
+    productName,
+    busy,
+    phone,
+    confirmingRemoval,
+    onChange,
+    onRequestRemove,
+    onCancelRemove,
+    onConfirmRemove,
+}: {
+    asset: CatalogFactoryAsset;
+    productName: string;
+    busy: boolean;
+    phone: boolean;
+    confirmingRemoval: boolean;
+    onChange: (patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) => void;
+    onRequestRemove: () => void;
+    onCancelRemove: () => void;
+    onConfirmRemove: () => void;
+}) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return (
         <View style={{ borderWidth: 1, borderColor: asset.isPrimary ? theme.colors.primary : theme.colors.border, borderRadius: 11, borderCurve: 'continuous', padding: scaleIcon(9), gap: scaleIcon(8), opacity: asset.active ? 1 : 0.58, backgroundColor: theme.colors.surface }}>
@@ -2233,7 +2317,19 @@ function MediaTile({ asset, productName, busy, phone, onChange }: { asset: Catal
                 {asset.assetType === 'image' && !asset.isPrimary && <CompactButton title="Make Primary" onPress={() => onChange({ isPrimary: true })} disabled={busy || !asset.active} />}
                 <CompactButton title={asset.homeownerVisible ? 'Make Staff-Only' : 'Show in HomeOS'} onPress={() => onChange({ homeownerVisible: !asset.homeownerVisible })} disabled={busy || !asset.active} />
                 <CompactButton title={asset.active ? 'Hide' : 'Restore'} onPress={() => onChange({ active: !asset.active })} disabled={busy} />
+                {asset.assetType === 'image' && !confirmingRemoval && <CompactButton title="Remove" destructive onPress={onRequestRemove} disabled={busy} />}
             </View>
+            {confirmingRemoval && (
+                <View accessibilityRole="alert" style={{ borderWidth: 1, borderColor: theme.colors.danger, borderRadius: 10, borderCurve: 'continuous', padding: scaleIcon(9), gap: scaleIcon(7), backgroundColor: theme.colors.surfaceAlt }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(13), lineHeight: scaleFont(18), fontWeight: '800' }}>
+                        Remove this product photo? This removes only this file from {productName || 'the selected master product'} and cannot be undone.
+                    </Text>
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(7) }}>
+                        <CompactButton title="Cancel" onPress={onCancelRemove} disabled={busy} />
+                        <CompactButton title="Remove Photo" destructive onPress={onConfirmRemove} disabled={busy} />
+                    </View>
+                </View>
+            )}
         </View>
     );
 }

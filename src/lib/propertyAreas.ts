@@ -115,7 +115,7 @@ export function classifyPropertyArea(
     if (persisted === 'interior' || persisted === 'exterior') return persisted;
 
     const name = normalizePropertyAreaName(area.name);
-    if (!name || name === 'garage') return 'unclassified';
+    if (!name) return 'unclassified';
     if (explicitAliases[name]) return explicitAliases[name];
     const catalogName = name.replace(/\s+#?\d+$/, '');
     if (interiorAreas.some((candidate) => normalizePropertyAreaName(candidate) === catalogName)) {

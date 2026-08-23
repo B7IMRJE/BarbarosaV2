@@ -115,6 +115,13 @@ export type CatalogFactoryDuplicateResult = {
     copiedAssetCount: number;
 };
 
+export type CatalogFactoryPhotoRemovalResult = {
+    assetId: string;
+    productVariantId: string;
+    primaryAssetId: string | null;
+    storageCleanupWarning: string;
+};
+
 export type ApprovedMasterCatalogItem = {
     id: string;
     shortCode: string;
@@ -366,6 +373,46 @@ export async function updateCatalogFactoryMedia(input: {
     const parsed = parseFactoryAsset(data);
     if (!parsed) throw new Error('Master media settings were saved, but the response was invalid.');
     return resolveFactoryAssetUrl(parsed);
+}
+
+export async function removeCatalogFactoryPhoto(input: {
+    variantId: string;
+    assetId: string;
+}): Promise<CatalogFactoryPhotoRemovalResult> {
+    const { data, error } = await supabase.rpc('remove_catalog_factory_photo', {
+        p_variant_id: input.variantId,
+        p_asset_id: input.assetId,
+    });
+    if (error) throw error;
+
+    const row = record(data);
+    const assetId = text(row.asset_id);
+    const productVariantId = text(row.product_variant_id);
+    if (assetId !== input.assetId || productVariantId !== input.variantId) {
+        throw new Error('The catalog photo removal response did not match the selected product and media file.');
+    }
+
+    const storageBucket = text(row.storage_bucket);
+    const storagePath = text(row.storage_path);
+    let storageCleanupWarning = '';
+    if (storageBucket || storagePath) {
+        const expectedPrefix = `variants/${input.variantId}/${input.assetId}/`;
+        if (storageBucket !== CATALOG_FACTORY_MEDIA_BUCKET || !storagePath.startsWith(expectedPrefix)) {
+            storageCleanupWarning = 'The photo was removed from the catalog, but its stored-file path was not safe to delete automatically.';
+        } else {
+            const { error: cleanupError } = await supabase.storage.from(storageBucket).remove([storagePath]);
+            if (cleanupError) {
+                storageCleanupWarning = 'The photo was removed from the catalog, but its stored file still needs administrator cleanup.';
+            }
+        }
+    }
+
+    return {
+        assetId,
+        productVariantId,
+        primaryAssetId: nullableText(row.primary_asset_id),
+        storageCleanupWarning,
+    };
 }
 
 export async function bulkApproveCatalogDrafts(variantIds: string[]) {

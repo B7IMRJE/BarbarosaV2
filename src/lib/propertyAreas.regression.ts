@@ -28,7 +28,11 @@ assert(classifyPropertyArea({ name: 'Hallway' }) === 'interior', 'Hallway must b
 assert(classifyPropertyArea({ name: 'Bathroom 2' }) === 'interior', 'Numbered bathrooms must remain interior.');
 assert(classifyPropertyArea({ name: 'Attached Garage' }) === 'interior', 'Attached garage must be interior.');
 assert(classifyPropertyArea({ name: 'Detached Garage' }) === 'exterior', 'Detached garage must be exterior.');
-assert(classifyPropertyArea({ name: 'Garage' }) === 'unclassified', 'Ambiguous garages must remain unclassified.');
+assert(classifyPropertyArea({ name: 'Garage' }) === 'interior', 'Canonical bare Garage must remain interior.');
+assert(
+    classifyPropertyArea({ name: 'Garage', area_scope: 'exterior' }) === 'exterior',
+    'A persisted Garage scope must remain authoritative for legacy customer records.'
+);
 assert(classifyPropertyArea({ name: 'Unknown workshop nook' }) === 'unclassified', 'Unknown labels must remain unclassified.');
 assert(propertyAreaScopeFromRoute('interior') === 'interior', 'Interior routes must open the My Home deck.');
 assert(propertyAreaScopeFromRoute('exterior') === 'exterior', 'Exterior routes must open the exterior deck.');
@@ -50,10 +54,12 @@ const rows: PropertyAreaRecord[] = [
 ];
 
 assert(
-    activeAreasForScope(rows.filter(isTopLevelPropertyArea), 'interior').length === 1,
+    activeAreasForScope(rows.filter(isTopLevelPropertyArea), 'interior').length === 2,
     'Top-level area cards must be de-duplicated without pulling in nested areas.'
 );
-assert(activeAreasForScope(rows, 'unclassified').some((row) => row.id === 'c'), 'Unclassified areas must stay visible.');
+assert(activeAreasForScope(rows, 'interior').some((row) => row.id === 'c'), 'Legacy canonical Garage rows must stay visible in Interior.');
+assert(!activeAreasForScope(rows, 'unclassified').some((row) => row.id === 'c'), 'Canonical Garage must not be stranded in Needs Placement.');
+assert(visibleRootAreasForScope(rows, 'interior').some((row) => row.id === 'c'), 'The shared HomeOS and TechOS root deck must include canonical Garage.');
 assert(!catalogForScope('interior', rows).some((card) => card.name === 'Kitchen'), 'Existing areas must not be offered again.');
 assert(catalogForScope('interior', rows).some((card) => card.name === 'Hallway'), 'Unused interior areas must remain available.');
 assert(

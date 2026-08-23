@@ -6,6 +6,7 @@ import {
     type StarterItemCategory,
 } from './areaTemplates';
 import { getSystemDefinition } from './homeSystems';
+import { classifyPropertyArea } from './propertyAreas';
 import {
     getCompleteRoomStarterItems,
     getCompleteRoomStarterKind,
@@ -170,6 +171,8 @@ export function buildStarterHomeSetupPreview({
 
     plan.forEach((area) => {
         const areaRow = buildAreaRow(userId, propertyId, area.name, area.system, area.parentArea || '');
+        const areaScope = classifyPropertyArea({ name: area.name });
+        if (areaScope !== 'unclassified') areaRow.area_scope = areaScope;
         const areaIdentityKeys = identityKeysForPlannedArea(area);
         const areaSlugs = slugKeysForPlannedArea(area);
         const areaPresent = hasAny(existingIdentityKeys, areaIdentityKeys) || hasAny(existingSlugs, areaSlugs);

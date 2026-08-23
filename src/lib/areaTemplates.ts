@@ -50,6 +50,7 @@ export type HomeItemInsert = {
     status: StarterItemStatus;
     install_state: 'Unknown' | 'Installed';
     archived: boolean;
+    area_scope?: 'interior' | 'exterior';
     starter_template_key?: string | null;
 };
 
