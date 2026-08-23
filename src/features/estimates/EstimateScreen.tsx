@@ -816,20 +816,23 @@ export default function EstimateScreen() {
         // Opening a different HomeOS item starts that item's estimate flow. Do not
         // hydrate the previous item's builder snapshot into the new questionnaire;
         // saved drafts remain available through their explicit estimate session.
-        const serverDraftMatchesRequestedItem = !requestedItemSlug || !serverDraft?.homeItemId ||
-            String(serverDraft.homeItemId) === String(requestedItemSlug);
-        const restoringRequestedDraft = Boolean(requestedEstimateSessionId) && serverDraftMatchesRequestedItem;
-        if (serverDraft && !restoringRequestedDraft) {
-            serverDraft = null;
-        }
-
         const persistedBuilderState = serverDraft && hasEstimateBuilderSnapshot(serverDraft.builderState)
             ? readPersistedEstimateBuilderState(serverDraft.builderState)
             : null;
-        const draftItems = restoringRequestedDraft && persistedBuilderState?.items
-            ? persistedBuilderState.items
+        const serverDraftContainsRequestedItem = !requestedItemSlug ||
+            Boolean(serverDraft?.homeItemId && String(serverDraft.homeItemId) === String(requestedItemSlug)) ||
+            Boolean(persistedBuilderState?.items?.some((item) =>
+                item.item_slug === requestedItemSlug || item.id === requestedItemSlug
+            ));
+        const restoringRequestedDraft = Boolean(requestedEstimateSessionId) && serverDraftContainsRequestedItem;
+        if (serverDraft && !restoringRequestedDraft) {
+            serverDraft = null;
+        }
+        const activePersistedBuilderState = restoringRequestedDraft ? persistedBuilderState : null;
+        const draftItems = activePersistedBuilderState?.items
+            ? activePersistedBuilderState.items
             : localDraftItems;
-        const nextDraftContext = persistedBuilderState?.draftContext
+        const nextDraftContext = activePersistedBuilderState?.draftContext
             || ((!requestedItemSlug || requestedEstimateSessionId) ? localDraftContext : null)
             || (serverDraft ? buildDraftContextFromServerDraft(serverDraft, access.companyUserId) : null);
         const inferredCategory = inferEstimateCategoryForDraftItem(
@@ -838,7 +841,7 @@ export default function EstimateScreen() {
             nextDraftContext
         );
         const restoredCategory = restoringRequestedDraft ? readEstimateOptionCategory(
-            persistedBuilderState?.selectedCategory || nextDraftContext?.estimate_category
+            activePersistedBuilderState?.selectedCategory || nextDraftContext?.estimate_category
         ) : null;
         const activeCategory = restoredCategory || inferredCategory;
         const initialSelection = resolveInitialEstimateCategorySelection(
@@ -903,8 +906,8 @@ export default function EstimateScreen() {
             : ''
         );
 
-        if (persistedBuilderState) {
-            applyPersistedBuilderState(persistedBuilderState, serverDraft?.currentBuilderStep || 'work');
+        if (activePersistedBuilderState) {
+            applyPersistedBuilderState(activePersistedBuilderState, serverDraft?.currentBuilderStep || 'work');
         } else if (serverDraft) {
             applyRequestedBuilderStep(serverDraft.currentBuilderStep);
         }
@@ -913,15 +916,15 @@ export default function EstimateScreen() {
 
         if (persistedSessionId) {
             const restoreTasks: Promise<void>[] = [
-                loadPersistedOptionSet(persistedSessionId, Boolean(persistedBuilderState)),
+                loadPersistedOptionSet(persistedSessionId, Boolean(activePersistedBuilderState)),
             ];
 
-            if (restoredCategory && persistedBuilderState?.estimateCategoryChosen !== false) {
+            if (restoredCategory && activePersistedBuilderState?.estimateCategoryChosen !== false) {
                 restoreTasks.push(loadPersistedAnswers(
                     persistedSessionId,
                     activeCategory,
-                    persistedBuilderState?.measurementDraftByKey,
-                    persistedBuilderState?.clearedAnswerQuestionIds,
+                    activePersistedBuilderState?.measurementDraftByKey,
+                    activePersistedBuilderState?.clearedAnswerQuestionIds,
                 ));
             }
 
