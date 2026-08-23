@@ -2894,7 +2894,10 @@ export default function ItemScreen() {
             return;
         }
 
-        openCurrentItemEstimate();
+        // Resolve the item-specific estimate session even when this item is
+        // already in the local draft. The legacy direct route omitted the
+        // session id and could reopen the last water-heater estimate.
+        await handleAddToEstimate();
     }
 
     async function handleAddToEstimate() {
