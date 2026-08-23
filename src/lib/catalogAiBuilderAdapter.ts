@@ -154,7 +154,10 @@ export function createCatalogAiBuilderAdapter(templates: AdapterTemplate[]) {
             currentDraftId = draftId;
             const payload = await uiDraftToPayload(draft, storedUploads);
             await saveCatalogAiDraft(currentDraftId, payload);
-            await approveCatalogAiDraft(currentDraftId);
+            const result = await approveCatalogAiDraft(currentDraftId);
+            const variantId = readId(result, 'variant_id');
+            if (!variantId) throw new Error('The AI catalog draft was approved without a usable product identifier.');
+            return { variantId };
         },
         pickImage: async (): Promise<UiCandidateImage | null> => {
             const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();

@@ -83,7 +83,7 @@ export type AiCatalogLoadedDraft = {
 export type AiCatalogItemBuilderAdapter = {
     research: (request: AiCatalogResearchRequest) => Promise<Partial<AiCatalogItemDraft>>;
     saveDraft: (draft: AiCatalogItemDraft) => Promise<{ draftId: string }>;
-    approveDraft: (draftId: string, draft: AiCatalogItemDraft) => Promise<void>;
+    approveDraft: (draftId: string, draft: AiCatalogItemDraft) => Promise<{ variantId: string }>;
     pickImage?: () => Promise<AiCatalogCandidateImage | null>;
     /** Returns platform AI drafts that the current Super Admin is allowed to resume. */
     listDrafts?: () => Promise<AiCatalogSavedDraftSummary[]>;
@@ -99,7 +99,7 @@ export type AiCatalogItemBuilderProps = {
     busy?: boolean;
     onClose: () => void;
     onSaved?: (draftId: string) => void;
-    onApproved?: () => void;
+    onApproved?: (variantId: string) => void;
 };
 
 export type AiCatalogDraftSaveDecision = CatalogAiDraftSaveDecision;
@@ -487,9 +487,9 @@ export default function AiCatalogItemBuilder({ templates, adapter, busy = false,
         if (!adapter || !draftId || isDirty || !imageReviewReady) return;
         setApproving(true);
         try {
-            await adapter.approveDraft(draftId, draft);
+            const result = await adapter.approveDraft(draftId, draft);
             setMessage('Approved and added to the existing live catalog. It uses the same production catalog card as every other item.');
-            onApproved?.();
+            onApproved?.(result.variantId);
         } catch (error) {
             setMessage(readError(error));
         } finally {

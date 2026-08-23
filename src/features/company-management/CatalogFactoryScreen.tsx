@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
     Linking,
@@ -113,6 +113,8 @@ const emptySeed = {
 };
 
 export default function CatalogFactoryScreen() {
+    const { productVariantId } = useLocalSearchParams<{ productVariantId?: string | string[] }>();
+    const requestedProductVariantId = firstParam(productVariantId);
     const { width } = useWindowDimensions();
     const phone = width < 720;
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -167,10 +169,10 @@ export default function CatalogFactoryScreen() {
             setMessage('Catalog Factory is restricted to platform administrators.');
             return;
         }
-        await refresh();
+        await refresh(filters, requestedProductVariantId);
     }
 
-    async function refresh(nextFilters = filters) {
+    async function refresh(nextFilters = filters, preferredVariantId = '') {
         setBusy(true);
         setMessage('Refreshing Catalog Factory...');
         try {
@@ -182,11 +184,17 @@ export default function CatalogFactoryScreen() {
             ]);
             setTemplates(result.templates);
             setRecords(result.records);
-            setDeckRecords(unfilteredResult?.records || result.records);
+            const allRecords = unfilteredResult?.records || result.records;
+            setDeckRecords(allRecords);
             setImports(result.imports);
             setStarterCards(nextStarterCards);
             setSelected((current) => current.filter((id) => result.records.some((record) => record.id === id)));
-            setMessage(`${result.records.length} master variant${result.records.length === 1 ? '' : 's'} in this view.`);
+            const preferredRecord = preferredVariantId
+                ? allRecords.find((record) => record.id === preferredVariantId)
+                : null;
+            if (preferredRecord) beginEdit(preferredRecord);
+            else if (preferredVariantId) setMessage('The requested master product is no longer available in Catalog Factory.');
+            else setMessage(`${result.records.length} master variant${result.records.length === 1 ? '' : 's'} in this view.`);
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -712,9 +720,9 @@ export default function CatalogFactoryScreen() {
                     adapter={aiCatalogAdapter}
                     busy={busy}
                     onClose={() => setMode('overview')}
-                    onApproved={() => {
+                    onApproved={(variantId) => {
                         setMode('overview');
-                        void refresh();
+                        void refresh(filters, variantId);
                     }}
                 />}
                 {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); setSeedResearchApplyMessage(''); }} templates={templates} records={deckRecords} starterCards={starterCards} busy={busy} researching={researchingSeed} research={seedResearch} researchApplyMessage={seedResearchApplyMessage} saveError={seedSaveError} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).templateKey} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); }} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); setSeedSaveError(''); setMode('overview'); }} />}
@@ -2288,3 +2296,4 @@ function parseAdvancedSources(value: unknown): CatalogSourceDraft[] { if (!Array
 function nullableNumber(value: unknown) { if (value == null || value === '') return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function textArray(value: unknown) { return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter(Boolean) : []; }
 function errorMessage(error: unknown) { if (error instanceof Error && error.message) return error.message; if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || 'Catalog Factory action failed.'); return 'Catalog Factory action failed.'; }
+function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] || '' : value || ''; }
