@@ -330,7 +330,10 @@ function CatalogProducts({ products }: { products: CatalogFactoryRecord[] }) {
             ? <EmptyState title="No catalog products available" body="Create and edit products in Catalog Factory." />
             : <View style={styles.productGrid}>{products.map((product) => {
                 const productName = catalogProductName(product);
-                const openCatalog = () => router.push('/super-admin/catalog-factory' as any);
+                const openCatalog = () => router.push({
+                    pathname: '/super-admin/catalog-factory',
+                    params: { productVariantId: product.id },
+                } as never);
                 return (
                     <CompactCatalogProductTile
                         key={product.id}
