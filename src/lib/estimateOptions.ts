@@ -703,6 +703,11 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         warnings: ['Preserve the guided water-heater checklist and block presentation until required safety questions are answered.'],
         blockingConditions: ['Fuel, venting, safety, and code requirements must be answered before presentation.'],
         questions: [
+            noteQuestion('existing_brand', 'Existing water heater manufacturer / brand', false),
+            noteQuestion('existing_model', 'Existing water heater model number', false),
+            noteQuestion('existing_serial', 'Existing water heater serial number / tag', false),
+            selectQuestion('existing_condition', 'Existing unit condition', false, ['operating', 'leaking', 'corroded', 'failed', 'unknown']),
+            noteQuestion('existing_notes', 'Existing unit notes for the homeowner record', false),
             selectQuestion('fuel_type', 'Fuel type', true, ['gas', 'electric', 'propane', 'heat pump', 'unknown']),
             selectQuestion('tank_or_tankless', 'Tank / tankless and verified capacity or demand', true, ['30 gallon', '40 gallon', '50 gallon', '70 gallon', '75 gallon', '100 gallon', 'tankless like-kind', 'tankless conversion']),
             noteQuestion('verified_efficiency_rating', 'Verified efficiency rating / product fact', false),

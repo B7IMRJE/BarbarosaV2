@@ -26,6 +26,12 @@ export type EstimateDraftItem = {
     company_user_id: string | null;
     source?: EstimateDraftSource | null;
     created_at: string | null;
+    /** Known facts copied from the selected HomeOS item for estimate prefill. */
+    existing_brand?: string | null;
+    existing_model?: string | null;
+    existing_serial?: string | null;
+    existing_condition?: string | null;
+    existing_notes?: string | null;
 };
 
 export type EstimateDraftContext = {
@@ -87,6 +93,11 @@ function normalizeDraftItem(item: EstimateDraftItem): EstimateDraftItem {
         company_user_id: item.company_user_id || null,
         source: item.source || null,
         created_at: item.created_at || null,
+        existing_brand: item.existing_brand || null,
+        existing_model: item.existing_model || null,
+        existing_serial: item.existing_serial || null,
+        existing_condition: item.existing_condition || null,
+        existing_notes: item.existing_notes || null,
     };
 }
 

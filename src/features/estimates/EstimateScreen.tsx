@@ -845,7 +845,21 @@ export default function EstimateScreen() {
         setSelectedCategory(initialSelection.category);
         setSelectedWorkType(initialSelection.workType);
         setEstimateCategoryChosen(initialSelection.categoryChosen);
-        setAnswers(getInitialEstimateAnswers(activeCategory));
+        const initialAnswers = getInitialEstimateAnswers(activeCategory);
+        const selectedDraftItem = draftItems.find((draftItem) =>
+            !requestedItemSlug || draftItem.item_slug === requestedItemSlug || draftItem.id === requestedItemSlug
+        );
+        if (activeCategory === 'water_heater' && selectedDraftItem) {
+            const knownAnswers: EstimateAnswerSet = {};
+            if (selectedDraftItem.existing_brand) knownAnswers.existing_brand = selectedDraftItem.existing_brand;
+            if (selectedDraftItem.existing_model) knownAnswers.existing_model = selectedDraftItem.existing_model;
+            if (selectedDraftItem.existing_serial) knownAnswers.existing_serial = selectedDraftItem.existing_serial;
+            if (selectedDraftItem.existing_condition) knownAnswers.existing_condition = selectedDraftItem.existing_condition;
+            if (selectedDraftItem.existing_notes) knownAnswers.existing_notes = selectedDraftItem.existing_notes;
+            setAnswers({ ...initialAnswers, ...knownAnswers });
+        } else {
+            setAnswers(initialAnswers);
+        }
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
@@ -3519,6 +3533,18 @@ export default function EstimateScreen() {
         selectEstimateCategory,
         selectCandidateChoice: (choiceId) => {
             setSelectedChoiceId(choiceId);
+            const selectedChoice = candidateEstimateChoices.find((choice) => choice.id === choiceId);
+            const selectedProduct = selectedChoice?.productIds
+                .map((productId) => approvedProducts.find((product) => product.id === productId) || null)
+                .find(Boolean) || null;
+            if (selectedProduct) {
+                setAnswers((current) => ({
+                    ...current,
+                    ...buildCatalogProductEstimatePrefill(selectedProduct),
+                    selected_catalog_product_id: selectedProduct.id,
+                    selected_catalog_product_model: `${selectedProduct.brand} ${selectedProduct.model}`.trim(),
+                }));
+            }
             setGuidedAdjustmentMode('none');
             setGuidedAdjustmentValue('');
             setGuidedDiscountLabel('');

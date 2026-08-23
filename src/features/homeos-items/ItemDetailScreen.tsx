@@ -2934,6 +2934,11 @@ export default function ItemScreen() {
             company_user_id: estimateAccess.companyUserId,
             source: estimateSource,
             created_at: new Date().toISOString(),
+            existing_brand: typeof item.brand === 'string' ? item.brand : null,
+            existing_model: typeof item.model === 'string' ? item.model : null,
+            existing_serial: typeof item.serial === 'string' ? item.serial : null,
+            existing_condition: typeof item.condition === 'string' ? item.condition : null,
+            existing_notes: typeof item.installation_notes === 'string' ? item.installation_notes : null,
         };
         const draftScope = {
             userId: estimateAccess.userId,
