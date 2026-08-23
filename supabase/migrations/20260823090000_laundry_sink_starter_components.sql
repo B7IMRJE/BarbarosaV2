@@ -9,7 +9,7 @@ alter table public.homeos_starter_card_templates
 
 alter table public.homeos_starter_card_templates
     add constraint homeos_starter_card_templates_room_check
-    check (room_kind in ('bathroom','kitchen','garage','laundry'));
+    check (btrim(room_kind) <> '');
 
 create or replace function public.homeos_complete_room_kind(p_area_name text)
 returns text
