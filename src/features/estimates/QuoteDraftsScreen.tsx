@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
@@ -40,6 +40,7 @@ export default function QuoteDraftsScreen() {
     const [quoteHistory, setQuoteHistory] = useState<CompanyEstimateQuoteHistorySummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingId, setDeletingId] = useState('');
+    const [confirmDeleteId, setConfirmDeleteId] = useState('');
     const [message, setMessage] = useState('Loading quote drafts...');
     const [historyMessage, setHistoryMessage] = useState('Loading customer quote history...');
     const routeParams = useMemo(() => compactParams(params as Record<string, unknown>), [params]);
@@ -169,18 +170,7 @@ export default function QuoteDraftsScreen() {
     }
 
     function confirmDelete(draft: CompanyEstimateDraftSummary) {
-        Alert.alert(
-            `Delete ${draft.quoteNumber}?`,
-            'This removes the draft from the active list. Finished and signed quotes are not affected.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete Draft',
-                    style: 'destructive',
-                    onPress: () => void deleteDraft(draft),
-                },
-            ]
-        );
+        setConfirmDeleteId((current) => current === draft.id ? '' : draft.id);
     }
 
     async function deleteDraft(draft: CompanyEstimateDraftSummary) {
@@ -267,6 +257,19 @@ export default function QuoteDraftsScreen() {
                                     <Text style={deleteButtonTextStyle}>{deletingId === draft.id ? 'Deleting...' : 'Delete Draft'}</Text>
                                 </TouchableOpacity>
                             </View>
+                            {confirmDeleteId === draft.id && (
+                                <View style={confirmDeleteStyle}>
+                                    <Text style={confirmDeleteTextStyle}>Remove this active draft? Finished and signed quotes are not affected.</Text>
+                                    <View style={actionRowStyle}>
+                                        <TouchableOpacity onPress={() => setConfirmDeleteId('')} style={secondaryButtonStyle}>
+                                            <Text style={secondaryButtonTextStyle}>Cancel</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => { setConfirmDeleteId(''); void deleteDraft(draft); }} style={deleteButtonStyle}>
+                                            <Text style={deleteButtonTextStyle}>Confirm Delete</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
                         </View>
                     ))}
                 </View>
@@ -386,3 +389,5 @@ const secondaryButtonStyle = { minHeight: 48, borderRadius: 14, backgroundColor:
 const secondaryButtonTextStyle = { color: '#163C4E', fontSize: 15, fontWeight: '900' as const };
 const deleteButtonStyle = { ...secondaryButtonStyle, borderColor: '#E5A5A5', backgroundColor: '#FFF2F2' };
 const deleteButtonTextStyle = { color: '#A32929', fontSize: 15, fontWeight: '900' as const };
+const confirmDeleteStyle = { borderRadius: 14, backgroundColor: '#FFF8F8', borderWidth: 1, borderColor: '#E5A5A5', padding: 12, gap: 8 };
+const confirmDeleteTextStyle = { color: '#7E2525', fontSize: 14, lineHeight: 20, fontWeight: '700' as const };
