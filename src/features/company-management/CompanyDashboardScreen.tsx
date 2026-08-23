@@ -695,6 +695,11 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
+        if (card === 'Analytics') {
+            router.push(`/super-admin/company/${activeCompanyId}/analytics` as any);
+            return;
+        }
+
         if (card === 'Price Book') {
             router.push(`/super-admin/company/${activeCompanyId}/price-book` as never);
             return;

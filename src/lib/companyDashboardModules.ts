@@ -7,6 +7,7 @@ export const COMPANY_DASHBOARD_MODULES = [
     'Leads / Requests',
     'Opportunities',
     'Estimates / Proposals',
+    'Analytics',
     'Jobs / Dispatch',
     'Operations Rooms',
     'Team / Technicians',
@@ -33,6 +34,9 @@ export function canViewCompanyDashboardModule(
         return permissions.can_view_customers && permissions.can_view_jobs;
     }
     if (card === 'Estimates / Proposals') return permissions.can_create_estimates;
+    if (card === 'Analytics') {
+        return permissions.can_manage_company_users || permissions.can_manage_company_profile;
+    }
     if (card === 'Jobs / Dispatch') return permissions.can_view_jobs;
     if (card === 'Operations Rooms') return permissions.can_view_jobs;
     if (card === 'Team / Technicians') {
