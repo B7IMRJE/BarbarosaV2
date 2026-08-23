@@ -361,6 +361,7 @@ export function EquipmentDetailHeader({
     identifier,
     description,
     details,
+    informationAction,
     visual,
     photo,
     style,
@@ -371,6 +372,7 @@ export function EquipmentDetailHeader({
     identifier?: string;
     description?: string;
     details?: readonly { label: string; value?: string | null }[];
+    informationAction?: ReactNode;
     visual?: HomeOSVisualAsset;
     photo?: {
         uri?: string | null;
@@ -465,6 +467,7 @@ export function EquipmentDetailHeader({
                     ) : null}
                 </View>
             ) : null}
+            {informationAction ? <View style={{ alignItems: 'flex-start' }}>{informationAction}</View> : null}
         </View>
     );
 }

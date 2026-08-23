@@ -2,6 +2,7 @@ import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 import ProductCardImage from '../../components/catalog/product-card-image';
 import EstimatePresentationSessionPanel from './EstimatePresentationSessionPanel';
+import EstimatePackageComposer, { type EstimatePackageComposerInput } from './EstimatePackageComposer';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
@@ -101,6 +102,7 @@ import {
     saveEstimateOptionSet,
     type PersistableEstimateChoice,
 } from '../../lib/estimateOptionPersistence';
+import { buildEstimatePackageChoice } from '../../lib/estimateOptionPackages';
 import {
     buildCustomEstimateChoice,
     isCustomEstimateChoice,
@@ -345,6 +347,7 @@ export default function EstimateScreen() {
     const [relatedSearch, setRelatedSearch] = useState('');
     const [guidedAdjustmentMode, setGuidedAdjustmentMode] = useState<GuidedPriceAdjustmentMode>('none');
     const [guidedAdjustmentValue, setGuidedAdjustmentValue] = useState('');
+    const [bulkDiscountPercentage, setBulkDiscountPercentage] = useState('');
     const [guidedDiscountLabel, setGuidedDiscountLabel] = useState('');
     const [guidedAdjustmentLineId, setGuidedAdjustmentLineId] = useState('');
     const [editingGuidedOptionId, setEditingGuidedOptionId] = useState('');
@@ -1971,6 +1974,20 @@ export default function EstimateScreen() {
                 : `Option price increased by ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
     }
 
+    function applyBulkDiscount(choices: Phase1EstimateChoice[]) {
+        const magnitude = Number(bulkDiscountPercentage);
+
+        if (!Number.isFinite(magnitude) || magnitude <= 0 || magnitude > 100) {
+            setMessage('Enter an overall discount between 1% and 100%.');
+            return;
+        }
+
+        choices.forEach((choice) => {
+            setChoicePriceAdjustment(choice.id, -magnitude, 'Overall estimate discount');
+        });
+        setMessage(`${formatEstimatePriceAdjustmentPercentage(-magnitude)} overall discount applied to ${choices.length} option${choices.length === 1 ? '' : 's'}.`);
+    }
+
     function resetChoicePrice(choice: Phase1EstimateChoice) {
         setTechnicianApproved(false);
         setPresentationMode(false);
@@ -2181,8 +2198,8 @@ export default function EstimateScreen() {
             id: nextId,
             displayOrder: persistedOptionChoices.length + 1,
             basePricingResult: baseChoice?.pricingResult || choice.pricingResult,
-            priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
-            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+            priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] ?? choice.priceAdjustmentPercentage ?? 0,
+            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] ?? choice.priceAdjustmentLabel ?? null,
             linePriceAdjustments: linePriceAdjustmentsByChoiceId[choice.id] || choice.linePriceAdjustments || {},
         };
 
@@ -2634,6 +2651,46 @@ export default function EstimateScreen() {
         }
     }
 
+    async function createGuidedPackage(input: EstimatePackageComposerInput) {
+        const result = buildEstimatePackageChoice({
+            choices: estimateChoices,
+            sourceChoiceIds: input.sourceChoiceIds,
+            id: nextGuidedOptionId(persistedOptionChoices),
+            displayOrder: persistedOptionChoices.length + 1,
+            title: input.title,
+            discountPercentage: input.discountPercentage,
+            discountLabel: input.discountLabel,
+        });
+
+        if (!result.choice) {
+            setMessage(result.error || 'The package could not be created.');
+            return false;
+        }
+
+        const saved = await persistGuidedOptions(
+            [...persistedOptionChoices, result.choice],
+            `${result.choice.title} added as a combined package.`,
+            'review',
+        );
+
+        if (!saved) return false;
+
+        setPriceAdjustmentByChoiceId((current) => ({
+            ...current,
+            [result.choice!.id]: result.choice!.priceAdjustmentPercentage || 0,
+        }));
+        setPriceAdjustmentDirectionByChoiceId((current) => ({
+            ...current,
+            [result.choice!.id]: (result.choice!.priceAdjustmentPercentage || 0) < 0 ? 'discount' : 'increase',
+        }));
+        setPriceAdjustmentLabelByChoiceId((current) => ({
+            ...current,
+            [result.choice!.id]: result.choice!.priceAdjustmentLabel || '',
+        }));
+
+        return true;
+    }
+
     function beginGuidedOptionEdit(baseChoice: Phase1EstimateChoice, finalChoice: Phase1EstimateChoice) {
         const effectiveLineAdjustments = Object.prototype.hasOwnProperty.call(
             linePriceAdjustmentsByChoiceId,
@@ -2704,8 +2761,8 @@ export default function EstimateScreen() {
             return {
                 ...choice,
                 basePricingResult: baseChoice?.pricingResult || choice.pricingResult,
-                priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
-                priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+                priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] ?? choice.priceAdjustmentPercentage ?? 0,
+                priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] ?? choice.priceAdjustmentLabel ?? null,
                 linePriceAdjustments: validLineAdjustments,
             };
         });
@@ -2775,8 +2832,8 @@ export default function EstimateScreen() {
                 basePricingResult: (
                     choiceSource.find((candidate) => candidate.id === choice.id) as PersistableEstimateChoice | undefined
                 )?.basePricingResult || choiceSource.find((candidate) => candidate.id === choice.id)?.pricingResult,
-                priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
-                priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+                priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] ?? choice.priceAdjustmentPercentage ?? 0,
+                priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] ?? choice.priceAdjustmentLabel ?? null,
             }));
 
             await saveEstimateOptionSet({
@@ -2812,6 +2869,7 @@ export default function EstimateScreen() {
                 mode: requestedMode,
                 returnTo: requestedReturnTo,
                 companyId: requestedCompanyId || estimateAccess?.companyId,
+                presentation: true,
             }) as never);
         } catch (error) {
             setOptionsWorkspaceNotice(`Could not open homeowner approval: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -3293,7 +3351,9 @@ export default function EstimateScreen() {
             aiDraftsByChoiceId[choice.id],
             editableCopyByChoiceId[choice.id]
         ));
-        const priceAdjustmentPercentage = priceAdjustmentByChoiceId[choice.id] || 0;
+        const priceAdjustmentPercentage = priceAdjustmentByChoiceId[choice.id]
+            ?? choice.priceAdjustmentPercentage
+            ?? 0;
         const linePriceAdjustments = linePriceAdjustmentsByChoiceId[choice.id]
             || choice.linePriceAdjustments
             || {};
@@ -3303,7 +3363,9 @@ export default function EstimateScreen() {
         return synchronizeCustomEstimateChoiceCopy({
             ...lineAdjustedChoice,
             priceAdjustmentPercentage,
-            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id]
+                ?? choice.priceAdjustmentLabel
+                ?? null,
             linePriceAdjustments,
         });
     };
@@ -3370,7 +3432,10 @@ export default function EstimateScreen() {
     if (isGuidedEstimateBuilderEnabled()) return renderGuidedEstimateBuilder({
         activeDraftItem,
         aiDrafting,
+        applyBulkDiscount,
         answers,
+        bulkDiscountPercentage,
+        setBulkDiscountPercentage,
         approveForPresentation,
         canManagePricing: canManageEstimatePricing(estimateAccess),
         canUsePricing: canUseEstimatePricing(estimateAccess),
@@ -3425,6 +3490,7 @@ export default function EstimateScreen() {
         polishCustomQuoteScope,
         persistAddRecommendation: addRecommendedOption,
         persistAddSearchResult: addSearchedPriceBookOption,
+        persistCreatePackage: createGuidedPackage,
         persistRemoveOption: removeGuidedOption,
         beginGuidedOptionEdit,
         cancelGuidedOptionEdit,
@@ -4431,7 +4497,10 @@ type GuidedEstimateBuilderProps = {
     approvedProductMessage: string;
     approvedProductPhotoUrls: Record<string, string>;
     aiDrafting: boolean;
+    applyBulkDiscount: (choices: Phase1EstimateChoice[]) => void;
     answers: EstimateAnswerSet;
+    bulkDiscountPercentage: string;
+    setBulkDiscountPercentage: (value: string) => void;
     approveForPresentation: (choices: Phase1EstimateChoice[]) => Promise<void>;
     beginGuidedOptionEdit: (baseChoice: Phase1EstimateChoice, finalChoice: Phase1EstimateChoice) => void;
     cancelGuidedOptionEdit: () => void;
@@ -4494,6 +4563,7 @@ type GuidedEstimateBuilderProps = {
         item: CompanyPriceBookItem,
         baseChoice: PersistableEstimateChoice,
     ) => Promise<void>;
+    persistCreatePackage: (input: EstimatePackageComposerInput) => Promise<boolean>;
     persistRemoveOption: (choiceId: string) => Promise<void>;
     phase1Workspace: ReturnType<typeof buildEstimateOptionWorkspace>;
     preferredChoiceId: string;
@@ -4557,7 +4627,10 @@ function renderGuidedEstimateBuilder({
     approvedProductMessage,
     approvedProductPhotoUrls,
     aiDrafting,
+    applyBulkDiscount,
     answers,
+    bulkDiscountPercentage,
+    setBulkDiscountPercentage,
     approveForPresentation,
     beginGuidedOptionEdit,
     cancelGuidedOptionEdit,
@@ -4613,6 +4686,7 @@ function renderGuidedEstimateBuilder({
     polishCustomQuoteScope,
     persistAddRecommendation,
     persistAddSearchResult,
+    persistCreatePackage,
     persistRemoveOption,
     phase1Workspace,
     preferredChoiceId,
@@ -5025,11 +5099,27 @@ function renderGuidedEstimateBuilder({
                                         </View>
                                     )}
 
-                                    {missingPhotoCount === 0 && missingMeasurementCount === 0 && (
-                                        <TouchableOpacity onPress={() => setGuidedBuildStep('price')} style={guidedPrimaryButtonStyle}>
-                                            <Text style={guidedPrimaryButtonTextStyle}>Continue to Price & Summary</Text>
-                                        </TouchableOpacity>
-                                    )}
+                                    <TouchableOpacity
+                                        accessibilityHint={missingPhotoCount > 0 || missingMeasurementCount > 0
+                                            ? 'Saves the current estimate draft and continues to pricing. Missing evidence remains flagged for later completion.'
+                                            : 'Continues to pricing and summary.'}
+                                        accessibilityLabel="Continue to Price and Summary"
+                                        onPress={() => {
+                                            if (missingPhotoCount > 0 || missingMeasurementCount > 0) {
+                                                void deferPhotosAndMeasurements();
+                                                return;
+                                            }
+
+                                            setGuidedBuildStep('price');
+                                        }}
+                                        style={guidedPrimaryButtonStyle}
+                                    >
+                                        <Text style={guidedPrimaryButtonTextStyle}>
+                                            {missingPhotoCount > 0 || missingMeasurementCount > 0
+                                                ? 'Continue with Missing Evidence'
+                                                : 'Continue to Price & Summary'}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
                         )}
 
@@ -5441,6 +5531,40 @@ function renderGuidedEstimateBuilder({
                         <Text style={guidedStepStyle}>QUOTE REVIEW</Text>
                         <Text style={guidedSectionTitleStyle}>{estimateChoices.length} customer option{estimateChoices.length === 1 ? '' : 's'}</Text>
                         <Text style={guidedSectionDescriptionStyle}>Each card contains only the work and price included in that option.</Text>
+
+                        {!editingGuidedOptionId && (
+                            <EstimatePackageComposer
+                                choices={estimateChoices}
+                                onCreate={persistCreatePackage}
+                                saving={savingGuidedOption}
+                            />
+                        )}
+
+                        {!editingGuidedOptionId && estimateChoices.length > 0 && (
+                            <View style={guidedAdjustmentStyle}>
+                                <Text style={guidedFieldLabelStyle}>Adjust all options together</Text>
+                                <Text style={guidedFieldHelpStyle}>
+                                    Apply one percentage discount to every option without changing each option one at a time.
+                                </Text>
+                                <View style={guidedAdjustmentInputRowStyle}>
+                                    <DictationTextInput
+                                        inputMode="decimal"
+                                        keyboardType="decimal-pad"
+                                        onChangeText={setBulkDiscountPercentage}
+                                        placeholder="10 or 15"
+                                        style={guidedAdjustmentInputStyle}
+                                        value={bulkDiscountPercentage}
+                                    />
+                                    <Text style={guidedAdjustmentUnitStyle}>% off</Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => applyBulkDiscount(estimateChoices)}
+                                    style={guidedSecondaryButtonStyle}
+                                >
+                                    <Text style={guidedSecondaryButtonTextStyle}>Apply to all options</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
                         <View style={guidedReviewListStyle}>
                             {estimateChoices.map((choice, index) => {

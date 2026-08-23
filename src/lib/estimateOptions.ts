@@ -394,6 +394,12 @@ export type EstimateChoice = {
     selectionGroup?: string;
     selectionGroupLabel?: string;
     pricingSource?: 'price_book' | 'technician_custom';
+    /**
+     * Stable source option ids for a technician-composed package. These live in
+     * the existing option JSON snapshot so the package can explain its origin
+     * without creating a second estimate or pricing system.
+     */
+    packageSourceChoiceIds?: string[];
 };
 
 export type EstimatePresentationGate = {
@@ -719,7 +725,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('platform', 'Platform', true, ['acceptable', 'replace / build', 'not applicable']),
             selectQuestion('installation_difficulty', 'Installation difficulty', true, ['standard access', 'moderate — extra access or correction work', 'difficult — extended labor or access']),
             selectQuestion('burner_condition', 'Burner assembly condition', false, ['acceptable', 'missing', 'damaged / replacement needed', 'not applicable', 'not inspected']),
-            multiQuestion('documented_deficiencies', 'Documented deficiencies', false, ['burner missing', 'burner damaged', 'no manufacturer warranty', 'corrosion', 'leaking tank', 'failed control', 'venting deficiency', 'code clearance issue']),
+            multiQuestion('documented_deficiencies', 'Documented deficiencies', false, ['none / not applicable', 'burner missing', 'burner damaged', 'no manufacturer warranty', 'corrosion', 'leaking tank', 'failed control', 'venting deficiency', 'code clearance issue']),
             selectQuestion('recirculation', 'Recirculation', false, ['none', 'existing', 'add option', 'repair / replace']),
             selectQuestion('water_quality_observation', 'Water quality observed', false, ['no concern observed', 'scale / sediment', 'hard water confirmed', 'unknown']),
             selectQuestion('permit_inspection_scope', 'Permit / inspection scope', true, ['included in selected Price Book scope', 'fees or coordination priced separately', 'not required per documented local requirements', 'confirm with authority having jurisdiction']),
@@ -1898,6 +1904,7 @@ export function filterApprovedActiveProducts(
                 product.brand,
                 product.model,
                 ...product.compatibleApplications,
+                ...Object.entries(product.specifications).map(([key, value]) => `${key} ${value}`),
             ].join(' '));
 
             return identity.includes(normalizeText(filter));
@@ -3172,7 +3179,7 @@ function isCompatiblePricedWaterHeaterProduct(
     const selectedIsTankless = selectedEquipment.includes('tankless');
     const productIsTankless = category.includes('tankless') || descriptors.includes('tankless');
 
-    if (!category.includes('water heater') || selectedIsTankless !== productIsTankless) return false;
+    if (!(category.includes('water heater') || descriptors.includes('water heater')) || selectedIsTankless !== productIsTankless) return false;
 
     if (selectedIsTankless) {
         const selectedApplication = selectedEquipment.includes('conversion')

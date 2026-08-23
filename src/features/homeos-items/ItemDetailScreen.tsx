@@ -2913,6 +2913,9 @@ export default function ItemScreen() {
             ? 'provider_mode'
             : 'management';
         const draftItemId = String(item.id || item.item_slug || slug);
+        const isWaterHeaterItem = `${item.name || ''} ${item.category || ''} ${item.system || ''}`
+            .toLowerCase()
+            .includes('water heater');
         const draftItem = {
             id: draftItemId,
             property_id: estimatePropertyId || item.property_id || null,
@@ -2948,6 +2951,7 @@ export default function ItemScreen() {
                     pathname: '/estimate/workspace',
                     params: {
                         itemSlug: item.item_slug || String(slug),
+                        step: isWaterHeaterItem ? 'findings' : undefined,
                         ...providerModeQueryParams(providerModeContext),
                     },
                 } as any);
@@ -3025,6 +3029,7 @@ export default function ItemScreen() {
                 companyId: estimateCompanyId,
                 propertyId: estimatePropertyId,
                 itemSlug: item.item_slug || String(slug),
+                step: isWaterHeaterItem ? 'findings' : undefined,
                 mode: isManagementMode ? 'management' : '',
             },
         } as any);
@@ -5214,6 +5219,14 @@ export default function ItemScreen() {
                         type={item.placement_label || undefined}
                         description={item.about || undefined}
                         details={detailCards}
+                        informationAction={canAddItemToEstimate ? (
+                            <ThemedButton
+                                title="Add to Estimate"
+                                onPress={handleAddToEstimate}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        ) : undefined}
                         photo={{
                             uri: stagedMainPhotoUrl || (!providerMediaLocked ? item.photo_url : ''),
                             notice: providerModeContext && stagedMainPhotoUrl
@@ -5873,13 +5886,6 @@ export default function ItemScreen() {
                         'Estimate & work',
                         'Quote this item, view the current estimate, or open the job thread.',
                         <>
-                            <ThemedButton
-                                title="Add to Estimate"
-                                onPress={handleAddToEstimate}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
-
                             <ThemedButton
                                 title="View Estimate"
                                 onPress={handleViewEstimate}
