@@ -2950,18 +2950,7 @@ export default function ItemScreen() {
             const existingDraft = await loadEstimateDraft(draftScope);
             const alreadyInDraft = existingDraft.some((draftItem) => draftItem.id === draftItemId);
 
-            if (alreadyInDraft) {
-                setMessage('Item is already in estimate. Opening its checklist.');
-                router.push({
-                    pathname: '/estimate/workspace',
-                    params: {
-                        itemSlug: item.item_slug || String(slug),
-                        step: isWaterHeaterItem ? 'findings' : undefined,
-                        ...providerModeQueryParams(providerModeContext),
-                    },
-                } as any);
-                return;
-            }
+            if (alreadyInDraft) setMessage('Item is already in estimate. Opening its checklist.');
         }
 
         const draftContext = {
