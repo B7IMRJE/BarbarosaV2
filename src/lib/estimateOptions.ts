@@ -1790,7 +1790,30 @@ export function inferEstimateCategoryForDraftItem(
         )
         : null;
 
-    if (!preferredItem) return inferEstimateCategoryFromDraft(items, context);
+    // A newly selected HomeOS item may not have been written into the local
+    // draft list yet. Infer from its route identity instead of falling back to
+    // an older item (for example, a previous water-heater draft).
+    if (!preferredItem) {
+        if (preferredIdentity) {
+            return inferEstimateCategoryFromDraft([{
+                id: preferredItemSlug || '',
+                item_slug: preferredItemSlug || '',
+                name: preferredItemSlug || '',
+                system: '',
+                category: '',
+                property_id: null,
+                location: null,
+                parent_area: null,
+                status: null,
+                install_state: null,
+                company_id: null,
+                company_user_id: null,
+                source: null,
+                created_at: null,
+            }], null);
+        }
+        return inferEstimateCategoryFromDraft(items, context);
+    }
 
     const itemIdentity = `${preferredItem.name} ${preferredItem.item_slug}`.toLowerCase();
     if (
