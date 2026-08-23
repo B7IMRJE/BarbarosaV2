@@ -348,6 +348,7 @@ export default function EstimateScreen() {
     const [guidedAdjustmentMode, setGuidedAdjustmentMode] = useState<GuidedPriceAdjustmentMode>('none');
     const [guidedAdjustmentValue, setGuidedAdjustmentValue] = useState('');
     const [bulkDiscountPercentage, setBulkDiscountPercentage] = useState('');
+    const [bulkDiscountChoiceIds, setBulkDiscountChoiceIds] = useState<string[]>([]);
     const [guidedDiscountLabel, setGuidedDiscountLabel] = useState('');
     const [guidedAdjustmentLineId, setGuidedAdjustmentLineId] = useState('');
     const [editingGuidedOptionId, setEditingGuidedOptionId] = useState('');
@@ -1989,6 +1990,10 @@ export default function EstimateScreen() {
     }
 
     function applyBulkDiscount(choices: Phase1EstimateChoice[]) {
+        if (choices.length === 0) {
+            setMessage('Select at least one customer option first.');
+            return;
+        }
         const magnitude = Number(bulkDiscountPercentage);
 
         if (!Number.isFinite(magnitude) || magnitude <= 0 || magnitude > 100) {
@@ -3447,6 +3452,8 @@ export default function EstimateScreen() {
         activeDraftItem,
         aiDrafting,
         applyBulkDiscount,
+        bulkDiscountChoiceIds,
+        setBulkDiscountChoiceIds,
         answers,
         bulkDiscountPercentage,
         setBulkDiscountPercentage,
@@ -4524,6 +4531,8 @@ type GuidedEstimateBuilderProps = {
     approvedProductPhotoUrls: Record<string, string>;
     aiDrafting: boolean;
     applyBulkDiscount: (choices: Phase1EstimateChoice[]) => void;
+    bulkDiscountChoiceIds: string[];
+    setBulkDiscountChoiceIds: (ids: string[]) => void;
     answers: EstimateAnswerSet;
     bulkDiscountPercentage: string;
     setBulkDiscountPercentage: (value: string) => void;
@@ -4654,6 +4663,8 @@ function renderGuidedEstimateBuilder({
     approvedProductPhotoUrls,
     aiDrafting,
     applyBulkDiscount,
+    bulkDiscountChoiceIds,
+    setBulkDiscountChoiceIds,
     answers,
     bulkDiscountPercentage,
     setBulkDiscountPercentage,
@@ -5570,8 +5581,22 @@ function renderGuidedEstimateBuilder({
                             <View style={guidedAdjustmentStyle}>
                                 <Text style={guidedFieldLabelStyle}>Adjust all options together</Text>
                                 <Text style={guidedFieldHelpStyle}>
-                                    Apply one percentage discount to every option without changing each option one at a time.
+                                    Select one, several, or all options, then apply one percentage discount to their full totals.
                                 </Text>
+                                <View style={compactActionRowStyle}>
+                                    <TouchableOpacity
+                                        onPress={() => setBulkDiscountChoiceIds(estimateChoices.map((choice) => choice.id))}
+                                        style={guidedSecondaryButtonStyle}
+                                    >
+                                        <Text style={guidedSecondaryButtonTextStyle}>Select all</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => setBulkDiscountChoiceIds([])}
+                                        style={guidedSecondaryButtonStyle}
+                                    >
+                                        <Text style={guidedSecondaryButtonTextStyle}>Clear selection</Text>
+                                    </TouchableOpacity>
+                                </View>
                                 <View style={guidedAdjustmentInputRowStyle}>
                                     <DictationTextInput
                                         inputMode="decimal"
@@ -5584,10 +5609,10 @@ function renderGuidedEstimateBuilder({
                                     <Text style={guidedAdjustmentUnitStyle}>% off</Text>
                                 </View>
                                 <TouchableOpacity
-                                    onPress={() => applyBulkDiscount(estimateChoices)}
+                                    onPress={() => applyBulkDiscount(estimateChoices.filter((choice) => bulkDiscountChoiceIds.includes(choice.id)))}
                                     style={guidedSecondaryButtonStyle}
                                 >
-                                    <Text style={guidedSecondaryButtonTextStyle}>Apply to all options</Text>
+                                    <Text style={guidedSecondaryButtonTextStyle}>Apply to {bulkDiscountChoiceIds.length || 0} selected</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -5599,6 +5624,18 @@ function renderGuidedEstimateBuilder({
 
                                 return (
                                     <View key={choice.id} style={guidedReviewCardStyle}>
+                                        <TouchableOpacity
+                                            accessibilityRole="checkbox"
+                                            accessibilityState={{ checked: bulkDiscountChoiceIds.includes(choice.id) }}
+                                            onPress={() => setBulkDiscountChoiceIds(bulkDiscountChoiceIds.includes(choice.id)
+                                                ? bulkDiscountChoiceIds.filter((id) => id !== choice.id)
+                                                : [...bulkDiscountChoiceIds, choice.id])}
+                                            style={compactActionRowStyle}
+                                        >
+                                            <Text style={guidedFieldLabelStyle}>
+                                                {bulkDiscountChoiceIds.includes(choice.id) ? '✓ Included in bulk price change' : 'Select for bulk price change'}
+                                            </Text>
+                                        </TouchableOpacity>
                                         {choice.productIds.length > 0 && (
                                             <ProductCardImage
                                                 imageUrl={choice.productIds.map((productId) => approvedProductPhotoUrls[productId]).find(Boolean)}
