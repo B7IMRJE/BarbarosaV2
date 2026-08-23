@@ -57,6 +57,10 @@ function bathroomAndGarageIncludeCompleteStarterCards() {
         rows.some((row) => row.name === 'Toilet Flapper' && row.location === 'Toilet' && row.parent_area === 'Bathroom 1'),
         'Bathroom subcomponents should be usable HomeOS rows nested under their parent card.',
     );
+    assert(
+        rows.some((row) => row.category === 'Area' && row.name === 'Garage' && row.area_scope === 'interior'),
+        'Starter provisioning must persist the canonical interior scope for Garage.',
+    );
 }
 
 function starterShellsHaveAnExplicitActivationBoundary() {
