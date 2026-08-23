@@ -321,6 +321,12 @@ function laundryStarterItems(): StarterHomeItem[] {
         starterItem('Washer Drain', 'Drains / Sewer', 'Fixture', ['Laundry Standpipe']),
         starterItem('Dryer Vent', 'Appliances', 'Component'),
         starterItem('Laundry Sink', 'Plumbing', 'Fixture'),
+        starterItem('Laundry Sink Faucet', 'Plumbing', 'Component', ['Laundry Faucet', 'Utility Sink Faucet'], 'Laundry Sink'),
+        starterItem('Laundry Sink Hot Angle Stop', 'Plumbing', 'Component', ['Hot Angle Stop', 'Laundry Hot Angle Stop'], 'Laundry Sink'),
+        starterItem('Laundry Sink Cold Angle Stop', 'Plumbing', 'Component', ['Cold Angle Stop', 'Laundry Cold Angle Stop'], 'Laundry Sink'),
+        starterItem('Laundry Sink Hot Supply Line', 'Plumbing', 'Component', ['Hot Supply Line', 'Laundry Hot Supply Line'], 'Laundry Sink'),
+        starterItem('Laundry Sink Cold Supply Line', 'Plumbing', 'Component', ['Cold Supply Line', 'Laundry Cold Supply Line'], 'Laundry Sink'),
+        starterItem('Laundry Sink P-Trap', 'Drains / Sewer', 'Component', ['Laundry P-Trap', 'Utility Sink P-Trap'], 'Laundry Sink'),
     ];
 }
 
