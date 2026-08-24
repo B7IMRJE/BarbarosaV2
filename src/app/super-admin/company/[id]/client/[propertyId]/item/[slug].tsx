@@ -339,17 +339,9 @@ export default function CompanyClientItemScreen() {
     }
 
     function openEstimate() {
-        if (!estimateAccess || !item) return;
-
-        router.push({
-            pathname: '/estimate/workspace',
-            params: {
-                companyId: estimateAccess.companyId,
-                propertyId: item.property_id || clientPropertyId,
-                itemSlug: item.item_slug || item.id,
-                mode: 'management',
-            },
-        } as never);
+        // Resolve the item-specific session before opening the workspace. The
+        // old direct route could reopen a different saved estimate.
+        void handleAddToEstimate();
     }
 
     function stageLocalUpdate(kind: StagedUpdate['kind']) {
