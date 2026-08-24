@@ -834,9 +834,19 @@ export default function EstimateScreen() {
             serverDraft = null;
         }
         const activePersistedBuilderState = restoringRequestedDraft ? persistedBuilderState : null;
+        // A deep link from a HomeOS item must never inherit another item's
+        // local draft (for example, a water-heater draft when opening a
+        // toilet). Keep the requested item only; the full saved draft remains
+        // available through its explicit estimate session id.
+        const requestedLocalDraftItems = requestedItemSlug
+            ? localDraftItems.filter((item) =>
+                String(item.item_slug || '') === String(requestedItemSlug)
+                || String(item.id || '') === String(requestedItemSlug)
+            )
+            : localDraftItems;
         const draftItems = activePersistedBuilderState?.items
             ? activePersistedBuilderState.items
-            : localDraftItems;
+            : requestedLocalDraftItems;
         const nextDraftContext = activePersistedBuilderState?.draftContext
             || ((!requestedItemSlug || requestedEstimateSessionId) ? localDraftContext : null)
             || (serverDraft ? buildDraftContextFromServerDraft(serverDraft, access.companyUserId) : null);
