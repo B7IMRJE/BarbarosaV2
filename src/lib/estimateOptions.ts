@@ -955,7 +955,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         questions: [
             selectQuestion('exterior_pipe_utility', 'What exterior piping are we replacing?', true, ['Water service', 'Sewer / building drain', 'Gas']),
             selectQuestion('exterior_pipe_material', 'Approved replacement material', true, []),
-            selectQuestion('exterior_pipe_size', 'Pipe size', true, []),
+            selectQuestion('exterior_pipe_size', 'Pipe size', true, ['1/2 in', '3/4 in', '1 in', 'larger / sizing required', 'unknown']),
             measurementQuestion('exterior_pipe_linear_feet', 'Measured replacement length (linear feet)', true, 1),
             measurementQuestion('exterior_pipe_crew_hours', 'Estimated crew time (hours)', true, 0.5),
             selectQuestion('exterior_pipe_access', 'Route and access', true, ['Open / exposed', 'Soft soil / landscape trench', 'Rooted or rocky soil', 'Hardscape crossing', 'Bore / trenchless review', 'Under-structure access']),

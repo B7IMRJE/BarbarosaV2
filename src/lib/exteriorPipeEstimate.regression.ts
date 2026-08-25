@@ -23,6 +23,11 @@ assert(!getExteriorPipeAllowedMaterials('Gas').includes('PEX for potable water')
 assert(getExteriorPipeAllowedMaterials('Gas').includes('Underground polyethylene gas pipe'), 'Gas should offer explicitly rated underground polyethylene gas pipe.');
 assert(getExteriorPipeAllowedMaterials('Sewer / building drain').includes('ABS'), 'Sewer should offer approved drainage materials.');
 assert(getExteriorPipeAllowedSizes('Sewer / building drain').includes('4 in'), 'Sewer should offer common drain sizes.');
+const exteriorPipeTemplate = getEstimateCategoriesForWorkType('replacement').find((card) => card.id === 'exterior_pipe_replacement');
+const exteriorPipeSizeQuestion = exteriorPipeTemplate?.questions.find((question) => question.id === 'exterior_pipe_size');
+assert(exteriorPipeSizeQuestion?.allowedAnswers?.includes('1/2 in'), 'Pipe size should offer a selectable half-inch option.');
+assert(exteriorPipeSizeQuestion?.allowedAnswers?.includes('3/4 in'), 'Pipe size should offer a selectable three-quarter-inch option.');
+assert(exteriorPipeSizeQuestion?.allowedAnswers?.includes('1 in'), 'Pipe size should offer a selectable one-inch option.');
 
 const gasWorkspace = workspace({
     exterior_pipe_utility: 'Gas',
