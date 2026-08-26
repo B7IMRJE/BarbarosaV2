@@ -1895,8 +1895,17 @@ function PriceBookItemCard({
                 {item.category}
             </Text>
             <View style={chipRowStyle}>
-                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}> 
                     {priced ? formatPrice(item.base_price) : 'Not priced'}
+                </Text>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}> 
+                    Normal {formatNullablePrice(item.minimum_permitted_selling_price ?? item.base_price)}
+                </Text>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}> 
+                    Mid {formatNullablePrice(item.recommended_selling_price ?? item.base_price)}
+                </Text>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}> 
+                    High {formatNullablePrice(item.maximum_permitted_selling_price ?? item.base_price)}
                 </Text>
                 {planningPrice ? (
                     <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
@@ -4683,6 +4692,10 @@ function formatPrice(value: number | null) {
     if (value < 0) return `-$${Math.abs(value).toFixed(2)}`;
 
     return `$${value.toFixed(2)}`;
+}
+
+function formatNullablePrice(value: number | null | undefined) {
+    return formatPrice(typeof value === 'number' ? value : null);
 }
 
 function formatHours(value: number | null) {
