@@ -649,6 +649,48 @@ export default function CompanyPriceBookScreen() {
         ));
     }
 
+    async function approveTier(item: CompanyPriceBookItem, tier: 'normal' | 'mid' | 'high') {
+        if (!manageAccess) {
+            setMessage('This account needs the Manage price book permission before it can approve a tier.');
+            return;
+        }
+        const amount = tier === 'normal'
+            ? item.minimum_permitted_selling_price
+            : tier === 'mid'
+                ? item.recommended_selling_price
+                : item.maximum_permitted_selling_price;
+        if (amount === null || amount === undefined) {
+            setMessage(`No ${tier} price is available for ${item.name}.`);
+            return;
+        }
+        setSaving(true);
+        setMessage(`Approving ${tier} pricing for ${item.name}...`);
+        try {
+            const result = await upsertCompanyPriceBookItem(companyId, {
+                id: item.id,
+                price_key: item.price_key,
+                name: item.name,
+                system: item.system,
+                category: item.category,
+                unit: item.unit,
+                base_price: amount,
+                labor_hours: item.labor_hours,
+                material_cost: item.material_cost,
+                customer_description: item.customer_description,
+                internal_notes: `${item.internal_notes || ''} [Approved Tier: ${tier}]`.trim(),
+                active: true,
+            });
+            const refreshed = await loadCompanyPriceBook(companyId);
+            setItems(refreshed.items);
+            setBackendStatusMessage(refreshed.backendStatus.message || result.backendStatus.message);
+            setMessage(`${tier[0].toUpperCase() + tier.slice(1)} pricing approved for ${item.name}. It is now the active quote price.`);
+        } catch (error) {
+            setMessage(`Approve price failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
     async function saveEditor() {
         if (!manageAccess) {
             setMessage('This account needs the Manage price book permission before it can save company pricing.');
@@ -1569,6 +1611,7 @@ export default function CompanyPriceBookScreen() {
                                                 onOpen={() => openPriceBookItem(item)}
                                                 onEdit={() => editItem(item)}
                                                 onArchive={() => archiveItem(item)}
+                                                onApproveTier={(tier) => void approveTier(item, tier)}
                                                 onToggleSelected={() => toggleSelectedItem(item.price_key)}
                                             />
                                         ))}
@@ -1688,6 +1731,7 @@ export default function CompanyPriceBookScreen() {
                                                 onOpen={() => openPriceBookItem(item)}
                                                 onEdit={() => editItem(item)}
                                                 onArchive={() => archiveItem(item)}
+                                                onApproveTier={(tier) => void approveTier(item, tier)}
                                                 onToggleSelected={() => toggleSelectedItem(item.price_key)}
                                             />
                                         ))}
@@ -1864,6 +1908,7 @@ function PriceBookItemCard({
     onOpen,
     onEdit,
     onArchive,
+    onApproveTier,
     onToggleSelected,
 }: {
     item: CompanyPriceBookItem;
@@ -1873,6 +1918,7 @@ function PriceBookItemCard({
     onOpen: () => void;
     onEdit: () => void;
     onArchive: () => void;
+    onApproveTier: (tier: 'normal' | 'mid' | 'high') => void;
     onToggleSelected: () => void;
 }) {
     const { theme } = useTheme();
@@ -1976,6 +2022,14 @@ function PriceBookItemCard({
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
                 />
+                {canManage && (item.minimum_permitted_selling_price !== null || item.recommended_selling_price !== null || item.maximum_permitted_selling_price !== null) && (
+                    <View style={tierApprovalRowStyle}>
+                        <Text style={tierApprovalLabelStyle}>Approve:</Text>
+                        {item.minimum_permitted_selling_price !== null && <ThemedButton title="Normal" variant="secondary" onPress={() => onApproveTier('normal')} style={microButtonStyle} textStyle={microButtonTextStyle} />}
+                        {item.recommended_selling_price !== null && <ThemedButton title="Mid" variant="secondary" onPress={() => onApproveTier('mid')} style={microButtonStyle} textStyle={microButtonTextStyle} />}
+                        {item.maximum_permitted_selling_price !== null && <ThemedButton title="High" variant="secondary" onPress={() => onApproveTier('high')} style={microButtonStyle} textStyle={microButtonTextStyle} />}
+                    </View>
+                )}
                 {canManage && item.source !== 'template' && (
                     <ThemedButton
                         title="Set Inactive"
@@ -5209,6 +5263,28 @@ const itemActionRowStyle = {
     flexWrap: 'wrap' as const,
     gap: 8,
     marginTop: 12,
+};
+
+const tierApprovalRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    flexWrap: 'wrap' as const,
+    gap: 5,
+    width: '100%' as const,
+};
+
+const tierApprovalLabelStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const microButtonStyle = {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+};
+
+const microButtonTextStyle = {
+    fontSize: 11,
 };
 
 const compactButtonStyle = {
