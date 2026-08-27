@@ -5,7 +5,7 @@ import EstimatePresentationSessionPanel from './EstimatePresentationSessionPanel
 import EstimatePackageComposer, { type EstimatePackageComposerInput } from './EstimatePackageComposer';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -84,6 +84,7 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
+import { type CompanyPriceTierKey } from '../../lib/companyPriceTiers';
 import {
     createCompanyApprovedProductCardImageUrl,
     loadCompanyApprovedProducts,
@@ -311,6 +312,7 @@ export default function EstimateScreen() {
     const [pendingRemoveChoiceId, setPendingRemoveChoiceId] = useState('');
     const [persistedOptionChoices, setPersistedOptionChoices] = useState<PersistableEstimateChoice[]>([]);
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
+    const [selectedPriceTier, setSelectedPriceTier] = useState<CompanyPriceTierKey>('mid');
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [approvedProducts, setApprovedProducts] = useState<EstimateApprovedProduct[]>([]);
     const [approvedProductPhotoUrls, setApprovedProductPhotoUrls] = useState<Record<string, string>>({});
@@ -3356,13 +3358,21 @@ export default function EstimateScreen() {
         );
     }
 
+    const quotePriceBookItems = useMemo(() => priceBookItems.map((item) => {
+        const tierPrice = selectedPriceTier === 'normal'
+            ? item.minimum_permitted_selling_price
+            : selectedPriceTier === 'high'
+                ? item.maximum_permitted_selling_price
+                : item.recommended_selling_price;
+        return tierPrice === null || tierPrice === undefined ? item : { ...item, base_price: tierPrice, recommended_selling_price: tierPrice };
+    }), [priceBookItems, selectedPriceTier]);
     const phase1Workspace = buildEstimateOptionWorkspace({
         companyId: estimateAccess.companyId,
         draftItems: items,
         draftContext,
         category: selectedCategory,
         answers,
-        priceBookItems,
+        priceBookItems: quotePriceBookItems,
         approvedProducts,
         technicianApproved,
         aiValidationFailed: false,
@@ -4056,6 +4066,23 @@ export default function EstimateScreen() {
                         </View>
                     ) : (
                         <View style={foundationGridStyle}>
+                            <View style={priceTierSelectorStyle}>
+                                <Text style={priceTierSelectorLabelStyle}>Quote pricing tier</Text>
+                                <Text style={priceTierSelectorHelpStyle}>Applies to this estimate only. It does not change the company Price Book.</Text>
+                                <View style={priceTierSelectorRowStyle}>
+                                    {(['normal', 'mid', 'high'] as const).map((tier) => (
+                                        <TouchableOpacity
+                                            key={tier}
+                                            onPress={() => setSelectedPriceTier(tier)}
+                                            style={[priceTierButtonStyle, selectedPriceTier === tier ? priceTierButtonActiveStyle : null]}
+                                        >
+                                            <Text style={[priceTierButtonTextStyle, selectedPriceTier === tier ? priceTierButtonActiveTextStyle : null]}>
+                                                {tier === 'mid' ? 'Mid' : tier[0].toUpperCase() + tier.slice(1)}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
                             {phase1Workspace.pricingResults.slice(0, 4).map((pricingResult) => (
                                 <View key={pricingResult.id} style={[foundationCardStyle, cardTone('#EEF4FF', '#C8DAFF', '#276BDC')]}>
                                     <Text style={foundationTitleStyle}>{formatMoney(pricingResult.totalAmount)}</Text>
@@ -9732,6 +9759,57 @@ const foundationGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 12,
     marginBottom: 18,
+};
+
+const priceTierSelectorStyle = {
+    width: '100%' as const,
+    backgroundColor: '#F7FAFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C8DAFF',
+    padding: 12,
+    marginBottom: 4,
+};
+
+const priceTierSelectorLabelStyle = {
+    color: '#071B33',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const priceTierSelectorHelpStyle = {
+    color: '#637083',
+    fontSize: 12,
+    marginTop: 3,
+};
+
+const priceTierSelectorRowStyle = {
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const priceTierButtonStyle = {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#AFC4E8',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+};
+
+const priceTierButtonActiveStyle = {
+    backgroundColor: '#276BDC',
+    borderColor: '#276BDC',
+};
+
+const priceTierButtonTextStyle = {
+    color: '#276BDC',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const priceTierButtonActiveTextStyle = {
+    color: '#FFFFFF',
 };
 
 const foundationCardStyle = {
