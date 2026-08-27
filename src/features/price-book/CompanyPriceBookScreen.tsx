@@ -680,6 +680,15 @@ export default function CompanyPriceBookScreen() {
                 internal_notes: `${item.internal_notes || ''} [Approved Tier: ${tier}]`.trim(),
                 active: true,
             });
+            const { error: approvalError } = await supabase.from('company_price_tier_approvals').insert({
+                company_id: companyId,
+                price_key: item.price_key,
+                tier,
+                amount,
+            });
+            if (approvalError && !/relation .* does not exist|schema cache/i.test(approvalError.message)) {
+                throw new Error(`Approval history could not be recorded: ${approvalError.message}`);
+            }
             const refreshed = await loadCompanyPriceBook(companyId);
             setItems(refreshed.items);
             setBackendStatusMessage(refreshed.backendStatus.message || result.backendStatus.message);
