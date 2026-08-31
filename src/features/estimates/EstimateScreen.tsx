@@ -5,7 +5,7 @@ import EstimatePresentationSessionPanel from './EstimatePresentationSessionPanel
 import EstimatePackageComposer, { type EstimatePackageComposerInput } from './EstimatePackageComposer';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { type RefObject, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -3358,14 +3358,14 @@ export default function EstimateScreen() {
         );
     }
 
-    const quotePriceBookItems = useMemo(() => priceBookItems.map((item) => {
+    const quotePriceBookItems = priceBookItems.map((item) => {
         const tierPrice = selectedPriceTier === 'normal'
             ? item.minimum_permitted_selling_price
             : selectedPriceTier === 'high'
                 ? item.maximum_permitted_selling_price
                 : item.recommended_selling_price;
         return tierPrice === null || tierPrice === undefined ? item : { ...item, base_price: tierPrice, recommended_selling_price: tierPrice };
-    }), [priceBookItems, selectedPriceTier]);
+    });
     const phase1Workspace = buildEstimateOptionWorkspace({
         companyId: estimateAccess.companyId,
         draftItems: items,
