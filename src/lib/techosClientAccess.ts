@@ -85,12 +85,20 @@ export function buildEstimateJobWorkflowRoute({
     mode,
     returnTo,
     companyId,
+    propertyId,
+    serviceRequestId,
+    scheduleSlotId,
+    jobId,
     presentation = false,
 }: {
     estimateSessionId: string;
     mode?: string | null;
     returnTo?: string | null;
     companyId?: string | null;
+    propertyId?: string | null;
+    serviceRequestId?: string | null;
+    scheduleSlotId?: string | null;
+    jobId?: string | null;
     presentation?: boolean;
 }) {
     const techOSReturnTo = resolveTechOSEstimateReturnRoute({ mode, returnTo, companyId });
@@ -102,6 +110,11 @@ export function buildEstimateJobWorkflowRoute({
             presentation: presentation ? '1' : null,
             source: techOSReturnTo ? 'techos' : null,
             returnTo: techOSReturnTo,
+            companyId: presentation ? companyId : null,
+            propertyId: presentation ? propertyId : null,
+            serviceRequestId: presentation ? serviceRequestId : null,
+            scheduleSlotId: presentation ? scheduleSlotId : null,
+            jobId: presentation ? jobId : null,
         }),
     };
 }

@@ -19,6 +19,7 @@ import {
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import {
+  isSalesEstimatePresentationRouteAllowed,
   secureRouteRenderKey,
   withSecureRouteGuardTimeout,
   type SecureRouteGuardParams,
@@ -73,6 +74,9 @@ export default function Layout() {
     jobId?: string | string[];
     itemSlug?: string | string[];
     estimateSessionId?: string | string[];
+    presentation?: string | string[];
+    source?: string | string[];
+    returnTo?: string | string[];
   }>();
   const pathnameRef = useRef(pathname);
   const routeParamsRef = useRef(routeParams);
@@ -647,6 +651,11 @@ function resolveRedirectForPath(
       isTechOSPath(pathname) ||
       isEstimatePath(pathname) ||
       (!salesTech && isJobWorkflowPath(pathname)) ||
+      (salesTech && isSalesEstimatePresentationRouteAllowed(
+        pathname,
+        routeParams,
+        routeDecision.allowedCompanyIds,
+      )) ||
       (!salesTech && pathname === COMPANY_INVITATIONS_ROUTE) ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {

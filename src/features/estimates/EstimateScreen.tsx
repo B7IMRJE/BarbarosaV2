@@ -2919,7 +2919,11 @@ export default function EstimateScreen() {
                 estimateSessionId: session.id,
                 mode: requestedMode,
                 returnTo: requestedReturnTo,
-                companyId: requestedCompanyId || estimateAccess?.companyId,
+                companyId: session.companyId || requestedCompanyId || estimateAccess?.companyId,
+                propertyId: session.propertyId || draftContext?.property_id || requestedPropertyId,
+                serviceRequestId: session.serviceRequestId || draftContext?.service_request_id,
+                scheduleSlotId: session.scheduleSlotId || draftContext?.schedule_slot_id,
+                jobId: session.jobId || draftContext?.job_id,
                 presentation: true,
             }) as never);
         } catch (error) {

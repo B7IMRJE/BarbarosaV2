@@ -9,6 +9,9 @@ export type SecureRouteGuardParams = {
     jobId?: string | string[];
     itemSlug?: string | string[];
     estimateSessionId?: string | string[];
+    presentation?: string | string[];
+    source?: string | string[];
+    returnTo?: string | string[];
 };
 
 export class SecureRouteGuardTimeoutError extends Error {
@@ -29,7 +32,37 @@ export function secureRouteRenderKey(pathname: string, routeParams: SecureRouteG
         firstRouteParam(routeParams.jobId),
         firstRouteParam(routeParams.itemSlug),
         firstRouteParam(routeParams.estimateSessionId),
+        firstRouteParam(routeParams.presentation),
+        firstRouteParam(routeParams.source),
+        firstRouteParam(routeParams.returnTo),
     ].join('|');
+}
+
+export function isSalesEstimatePresentationRouteAllowed(
+    pathname: string,
+    routeParams: SecureRouteGuardParams,
+    allowedCompanyIds: readonly string[] = [],
+) {
+    const currentPath = normalizePath(pathname);
+
+    if (currentPath !== '/job-workflow' && !currentPath.startsWith('/job-workflow/')) return false;
+    if (firstRouteParam(routeParams.presentation) !== '1') return false;
+    if (firstRouteParam(routeParams.source).trim().toLowerCase() !== 'techos') return false;
+
+    const companyId = firstRouteParam(routeParams.companyId).trim();
+    const propertyId = firstRouteParam(routeParams.propertyId).trim();
+    const estimateSessionId = firstRouteParam(routeParams.estimateSessionId).trim();
+    const returnTo = firstRouteParam(routeParams.returnTo).trim();
+    const hasAssignedWorkContext = Boolean(
+        firstRouteParam(routeParams.serviceRequestId).trim()
+        || firstRouteParam(routeParams.scheduleSlotId).trim()
+        || firstRouteParam(routeParams.jobId).trim()
+    );
+
+    if (!companyId || !propertyId || !estimateSessionId || !hasAssignedWorkContext) return false;
+    if (!allowedCompanyIds.includes(companyId)) return false;
+
+    return returnTo === '/techos' || returnTo.startsWith('/techos?');
 }
 
 export async function withSecureRouteGuardTimeout<T>(

@@ -1,5 +1,6 @@
 import {
     SecureRouteGuardTimeoutError,
+    isSalesEstimatePresentationRouteAllowed,
     secureRouteRenderKey,
     withSecureRouteGuardTimeout,
 } from './secureRouteGuard';
@@ -8,6 +9,7 @@ void runSecureRouteGuardRegressions();
 
 export async function runSecureRouteGuardRegressions() {
     assignedJobContextChangesThePrivacyCurtainKey();
+    assignedSalesCanOpenOnlyTheTechOSPresentationHandoff();
     await fastPermissionChecksContinue();
     await hangingPermissionChecksBecomeRetryableErrors();
 }
@@ -30,6 +32,35 @@ function assignedJobContextChangesThePrivacyCurtainKey() {
 
     assert(firstKey !== nextVisitKey, 'A different assigned visit must trigger a new secure route check.');
     assert(firstKey.includes('whole-home-repipe'), 'The selected HomeOS item must remain part of the secure route identity.');
+}
+
+function assignedSalesCanOpenOnlyTheTechOSPresentationHandoff() {
+    const presentationParams = {
+        presentation: '1',
+        source: 'techos',
+        returnTo: '/techos?companyId=company-1&slotId=slot-1',
+        companyId: 'company-1',
+        propertyId: 'property-1',
+        estimateSessionId: 'estimate-session-1',
+        scheduleSlotId: 'slot-1',
+    };
+
+    assert(
+        isSalesEstimatePresentationRouteAllowed('/job-workflow', presentationParams, ['company-1']),
+        'Assigned Sales Tech must be able to open the homeowner presentation for an approved estimate.',
+    );
+    assert(
+        !isSalesEstimatePresentationRouteAllowed('/job-workflow', { ...presentationParams, presentation: '' }, ['company-1']),
+        'Sales Tech must not open the general job workflow without presentation mode.',
+    );
+    assert(
+        !isSalesEstimatePresentationRouteAllowed('/job-workflow', { ...presentationParams, scheduleSlotId: '' }, ['company-1']),
+        'Sales Tech presentation access must retain an assigned request, visit, or job.',
+    );
+    assert(
+        !isSalesEstimatePresentationRouteAllowed('/job-workflow', presentationParams, ['company-2']),
+        'Sales Tech must not present an estimate for another company.',
+    );
 }
 
 async function fastPermissionChecksContinue() {

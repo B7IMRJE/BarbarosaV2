@@ -101,9 +101,18 @@ function estimateApprovalPreservesTechOSReturnContext() {
         mode: 'techos',
         returnTo: '/techos?companyId=company-1&slotId=slot-1',
         companyId: 'company-1',
+        propertyId: 'property-1',
+        serviceRequestId: 'request-1',
+        scheduleSlotId: 'slot-1',
+        jobId: 'job-1',
         presentation: true,
     });
     assert(presentationRoute.params.presentation === '1', 'Present should open Job Workflow in homeowner presentation mode instead of the dashboard workflow.');
+    assert(presentationRoute.params.companyId === 'company-1', 'Presentation should preserve the company for secure route authorization.');
+    assert(presentationRoute.params.propertyId === 'property-1', 'Presentation should preserve the client home for secure route authorization.');
+    assert(presentationRoute.params.serviceRequestId === 'request-1', 'Presentation should preserve the assigned request.');
+    assert(presentationRoute.params.scheduleSlotId === 'slot-1', 'Presentation should preserve the assigned visit.');
+    assert(presentationRoute.params.jobId === 'job-1', 'Presentation should preserve the assigned job.');
 }
 
 function nonTechOSEstimateApprovalOmitsTechOSReturnContext() {
