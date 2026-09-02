@@ -137,12 +137,27 @@ export function resolveEstimateDraftResumeRouteMode(
 
     return {
         providerMode: opensInClientProviderMode ? '1' : null,
-        mode: draft.source === 'techos'
+        mode: ['techos', 'provider_mode'].includes(draft.source)
             ? 'techos'
             : draft.source === 'management'
                 ? 'management'
                 : null,
     } as const;
+}
+
+export function filterEstimateDraftsForItem<TDraft extends Pick<CompanyEstimateDraftSummary, 'propertyId' | 'homeItemId'>>(
+    drafts: readonly TDraft[],
+    context: { propertyId?: string | null; homeItemId?: string | null }
+) {
+    const propertyId = String(context.propertyId || '').trim();
+    const homeItemId = String(context.homeItemId || '').trim();
+
+    return drafts.filter((draft) => {
+        if (propertyId && draft.propertyId !== propertyId) return false;
+        if (homeItemId && draft.homeItemId !== homeItemId) return false;
+
+        return true;
+    });
 }
 
 function mapDraftSummary(record: DraftRecord | null): CompanyEstimateDraftSummary | null {

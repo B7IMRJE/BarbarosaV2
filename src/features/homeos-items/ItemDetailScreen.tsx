@@ -30,8 +30,6 @@ import {
     type CompanyPermissionAccess,
 } from '../../lib/companyPermissions';
 import { addItemToEstimateDraft, loadEstimateDraft, saveEstimateDraftContext } from '../../lib/estimateDraft';
-import { inferEstimateCategoryFromDraft } from '../../lib/estimateOptions';
-import { resolveEstimateOptionSession } from '../../lib/estimateSessions';
 import { canShowHomeItemEstimateTools } from '../../lib/homeItemEstimateVisibility';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
@@ -2830,31 +2828,6 @@ export default function ItemScreen() {
             : '/';
     }
 
-    function openCurrentItemEstimate() {
-        if (!canShowHomeItemEstimateTools({
-            hasEstimateAccess: Boolean(estimateAccess),
-            isManagementMode,
-            isProviderMode,
-        })) {
-            setMessage('Estimate tools are available from an authorized company workspace.');
-            return;
-        }
-
-        router.push({
-            pathname: '/estimate/workspace',
-            params: {
-                mode: isManagementMode ? 'management' : '',
-                itemSlug: item.item_slug || String(slug),
-                ...(providerModeContext
-                    ? providerModeQueryParams(providerModeContext)
-                    : {
-                        companyId: estimateAccess?.companyId || managementCompanyId || '',
-                        propertyId: item.property_id || managementPropertyId || '',
-                    }),
-            },
-        } as never);
-    }
-
     function openCatalogQuote(proposal: HomeItemCatalogProposal) {
         if (!providerModeContext) return;
 
@@ -2879,24 +2852,6 @@ export default function ItemScreen() {
             return;
         }
 
-        const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
-        const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
-        const draftItemId = String(item.id || item.item_slug || slug);
-        const existingDraft = await loadEstimateDraft({
-            userId: estimateAccess.userId,
-            companyId: estimateCompanyId,
-            propertyId: estimatePropertyId || null,
-        });
-
-        if (!existingDraft.some((draftItem) => draftItem.id === draftItemId)) {
-            setMessage('Adding this service to the estimate...');
-            await handleAddToEstimate();
-            return;
-        }
-
-        // Resolve the item-specific estimate session even when this item is
-        // already in the local draft. The legacy direct route omitted the
-        // session id and could reopen the last water-heater estimate.
         await handleAddToEstimate();
     }
 
@@ -2916,9 +2871,6 @@ export default function ItemScreen() {
             ? 'provider_mode'
             : 'management';
         const draftItemId = String(item.id || item.item_slug || slug);
-        const isWaterHeaterItem = `${item.name || ''} ${item.category || ''} ${item.system || ''}`
-            .toLowerCase()
-            .includes('water heater');
         const draftItem = {
             id: draftItemId,
             property_id: estimatePropertyId || item.property_id || null,
@@ -2971,65 +2923,23 @@ export default function ItemScreen() {
             source: estimateSource,
             updated_at: new Date().toISOString(),
         };
-        const sessionResult = await resolveEstimateOptionSession({
-            companyId: estimateCompanyId,
-            propertyId: draftContext.property_id,
-            serviceRequestId: draftContext.service_request_id,
-            jobId: draftContext.job_id,
-            scheduleSlotId: draftContext.schedule_slot_id,
-            homeItemId: draftItemId,
-            category: inferEstimateCategoryFromDraft([draftItem], draftContext),
-            source: estimateSource,
-        });
-
-        if (!sessionResult.session) {
-            setMessage(`Estimate session unavailable: ${sessionResult.error || 'Could not create estimate session.'}`);
-            return;
-        }
-
         await addItemToEstimateDraft(draftItem, draftScope);
-
-        if (providerModeContext) {
-            await saveEstimateDraftContext({
-                estimate_session_id: sessionResult.session.id,
-                company_id: estimateCompanyId,
-                property_id: estimatePropertyId || item.property_id || null,
-                customer_home_name: `Client HomeOS ${shortId(estimatePropertyId)}`,
-                service_request_id: providerModeContext.serviceRequestId || null,
-                job_id: providerModeContext.jobId || null,
-                schedule_slot_id: providerModeContext.scheduleSlotId || null,
-                technician_company_user_id: estimateAccess.companyUserId || null,
-                technician_name: null,
-                issue_summary: null,
-                source: 'provider_mode',
-                updated_at: new Date().toISOString(),
-            }, draftScope);
-            setMessage('Item added to estimate.');
-            router.push({
-                pathname: '/estimate/workspace',
-                params: {
-                    itemSlug: item.item_slug || String(slug),
-                    estimateSessionId: sessionResult.session.id,
-                    ...providerModeQueryParams(providerModeContext),
-                },
-            } as any);
-            return;
-        }
-
         await saveEstimateDraftContext({
             ...draftContext,
-            estimate_session_id: sessionResult.session.id,
+            estimate_session_id: null,
         }, draftScope);
 
+        setMessage('Choose an existing draft or create a new estimate.');
         router.push({
-            pathname: '/estimate/workspace',
+            pathname: '/estimate',
             params: {
                 companyId: estimateCompanyId,
                 propertyId: estimatePropertyId,
                 itemSlug: item.item_slug || String(slug),
-                estimateSessionId: sessionResult.session.id,
-                step: isWaterHeaterItem ? 'findings' : undefined,
+                homeItemId: draftItemId,
+                itemName: item.name || 'Item',
                 mode: isManagementMode ? 'management' : '',
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }

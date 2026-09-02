@@ -72,9 +72,20 @@ export async function resolveEstimateOptionSession(
     }
 
     try {
-        let { data, error } = await supabase.rpc('upsert_estimate_option_session_for_draft', params);
+        let { data, error } = input.forceNew
+            ? await supabase.rpc('create_estimate_option_session_for_draft', {
+                p_company_id: params.p_company_id,
+                p_property_id: params.p_property_id,
+                p_service_request_id: params.p_service_request_id,
+                p_job_id: params.p_job_id,
+                p_schedule_slot_id: params.p_schedule_slot_id,
+                p_home_item_id: params.p_home_item_id,
+                p_category: params.p_category,
+                p_source: params.p_source,
+            })
+            : await supabase.rpc('upsert_estimate_option_session_for_draft', params);
 
-        if (error && params.p_session_id && shouldRetryEstimateSessionWithoutCandidate(error.message)) {
+        if (!input.forceNew && error && params.p_session_id && shouldRetryEstimateSessionWithoutCandidate(error.message)) {
             const retry = await supabase.rpc('upsert_estimate_option_session_for_draft', {
                 ...params,
                 p_session_id: null,
@@ -91,7 +102,7 @@ export async function resolveEstimateOptionSession(
         let row = readFirstSessionRow(data);
         let session = mapEstimateSessionRow(row);
 
-        if (session && params.p_session_id && !doesEstimateSessionMatchRequestedContext(session, input)) {
+        if (!input.forceNew && session && params.p_session_id && !doesEstimateSessionMatchRequestedContext(session, input)) {
             const retry = await supabase.rpc('upsert_estimate_option_session_for_draft', {
                 ...params,
                 p_session_id: null,

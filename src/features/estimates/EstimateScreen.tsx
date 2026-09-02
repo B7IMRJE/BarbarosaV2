@@ -264,10 +264,11 @@ const flapperReplacementPricePresets = [
 
 export default function EstimateScreen() {
     const { width: viewportWidth, fontScale } = useWindowDimensions();
-    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step, catalogItemId } = useLocalSearchParams<{
+    const { companyId, propertyId, itemSlug, homeItemId, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step, catalogItemId, newEstimate } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
         itemSlug?: string | string[];
+        homeItemId?: string | string[];
         mode?: string | string[];
         providerMode?: string | string[];
         returnTo?: string | string[];
@@ -277,16 +278,19 @@ export default function EstimateScreen() {
         estimateSessionId?: string | string[];
         step?: string | string[];
         catalogItemId?: string | string[];
+        newEstimate?: string | string[];
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
     const requestedItemSlug = firstParam(itemSlug);
+    const requestedHomeItemId = firstParam(homeItemId);
     const requestedMode = firstParam(mode);
     const requestedReturnTo = firstParam(returnTo);
     const requestedEstimateSessionId = firstParam(estimateSessionId);
     const requestedBuilderStepParam = firstParam(step);
     const requestedBuilderStep = normalizeEstimateBuilderStep(requestedBuilderStepParam);
     const requestedCatalogItemId = firstParam(catalogItemId);
+    const requestedNewEstimate = firstParam(newEstimate) === '1';
     const providerRouteParams = {
         providerMode,
         companyId,
@@ -441,6 +445,7 @@ export default function EstimateScreen() {
         requestedCompanyId,
         requestedPropertyId,
         requestedItemSlug,
+        requestedHomeItemId,
         providerContextIncomplete,
         providerModeContext?.providerMode,
         providerModeContext?.companyId,
@@ -449,6 +454,7 @@ export default function EstimateScreen() {
         providerModeContext?.scheduleSlotId,
         providerModeContext?.jobId,
         requestedEstimateSessionId,
+        requestedNewEstimate,
     ]);
 
     useEffect(() => {
@@ -797,7 +803,9 @@ export default function EstimateScreen() {
             loadEstimateDraft(scope),
             loadEstimateDraftContext(scope),
         ]);
-        const serverSessionId = requestedEstimateSessionId || localDraftContext?.estimate_session_id || '';
+        const serverSessionId = requestedNewEstimate
+            ? ''
+            : requestedEstimateSessionId || localDraftContext?.estimate_session_id || '';
         let serverDraft: CompanyEstimateBuilderDraft | null = null;
 
         if (serverSessionId) {
@@ -823,7 +831,7 @@ export default function EstimateScreen() {
             : null;
         const serverDraftContainsRequestedItem = !requestedItemSlug ||
             (serverDraft?.homeItemId
-                ? String(serverDraft.homeItemId) === String(requestedItemSlug)
+                ? String(serverDraft.homeItemId) === String(requestedHomeItemId || requestedItemSlug)
                     || Boolean(persistedBuilderState?.items?.some((item) =>
                         String(item.id) === String(serverDraft?.homeItemId)
                         && String(item.item_slug) === String(requestedItemSlug)
@@ -850,6 +858,9 @@ export default function EstimateScreen() {
             ? activePersistedBuilderState.items
             : requestedLocalDraftItems;
         const nextDraftContext = activePersistedBuilderState?.draftContext
+            || (requestedNewEstimate && localDraftContext
+                ? { ...localDraftContext, estimate_session_id: null }
+                : null)
             || ((!requestedItemSlug || requestedEstimateSessionId) ? localDraftContext : null)
             || (serverDraft ? buildDraftContextFromServerDraft(serverDraft, access.companyUserId) : null);
         const inferredCategory = inferEstimateCategoryForDraftItem(
@@ -2924,6 +2935,7 @@ export default function EstimateScreen() {
                 serviceRequestId: session.serviceRequestId || draftContext?.service_request_id,
                 scheduleSlotId: session.scheduleSlotId || draftContext?.schedule_slot_id,
                 jobId: session.jobId || draftContext?.job_id,
+                providerMode: Boolean(providerModeContext),
                 presentation: true,
             }) as never);
         } catch (error) {
@@ -3023,6 +3035,7 @@ export default function EstimateScreen() {
                 homeItemId,
                 category,
                 source,
+                forceNew: requestedNewEstimate && !estimateSessionRef.current?.id,
             },
         };
     }

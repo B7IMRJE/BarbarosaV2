@@ -58,6 +58,14 @@ function assignedSalesCanOpenOnlyTheTechOSPresentationHandoff() {
         'Sales Tech presentation access must retain an assigned request, visit, or job.',
     );
     assert(
+        isSalesEstimatePresentationRouteAllowed('/job-workflow', {
+            ...presentationParams,
+            scheduleSlotId: '',
+            providerMode: '1',
+        }, ['company-1']),
+        'A saved draft opened through an authorized client HomeOS may be presented even when its old visit id is unavailable.',
+    );
+    assert(
         !isSalesEstimatePresentationRouteAllowed('/job-workflow', presentationParams, ['company-2']),
         'Sales Tech must not present an estimate for another company.',
     );

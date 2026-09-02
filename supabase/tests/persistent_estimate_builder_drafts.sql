@@ -1,6 +1,6 @@
 begin;
 
-select plan(13);
+select plan(14);
 
 select has_table('public', 'company_estimate_quote_counters', 'company quote counter exists');
 select has_column('public', 'company_estimate_option_sessions', 'quote_sequence', 'estimate session has a quote sequence');
@@ -12,6 +12,12 @@ select has_function('public', 'list_company_estimate_drafts', array['uuid'], 'dr
 select has_function('public', 'get_company_estimate_builder_draft', array['uuid'], 'draft restore RPC exists');
 select has_function('public', 'save_company_estimate_builder_draft', array['uuid','text','jsonb'], 'draft autosave RPC exists');
 select has_function('public', 'archive_company_estimate_draft', array['uuid'], 'draft archive RPC exists');
+select has_function(
+    'public',
+    'create_estimate_option_session_for_draft',
+    array['uuid','uuid','uuid','uuid','uuid','uuid','text','text'],
+    'distinct draft creation RPC exists'
+);
 
 select col_not_null('public', 'company_estimate_option_sessions', 'quote_sequence', 'quote sequence is required');
 select col_not_null('public', 'company_estimate_option_sessions', 'quote_number', 'quote number is required');

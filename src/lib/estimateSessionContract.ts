@@ -5,6 +5,7 @@ export type EstimateSessionSource = 'techos' | 'provider_mode' | 'management' | 
 
 export type EstimateOptionSessionInput = {
     sessionId?: string | null;
+    forceNew?: boolean;
     companyId: string;
     propertyId?: string | null;
     serviceRequestId?: string | null;
@@ -59,6 +60,7 @@ export function buildEstimateSessionResolutionKey(input: EstimateOptionSessionIn
     const params = buildEstimateSessionRpcParams(input);
 
     return [
+        input.forceNew ? 'new' : 'resume',
         params.p_session_id,
         params.p_company_id,
         params.p_property_id,

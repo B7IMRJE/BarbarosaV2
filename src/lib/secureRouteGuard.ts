@@ -58,8 +58,10 @@ export function isSalesEstimatePresentationRouteAllowed(
         || firstRouteParam(routeParams.scheduleSlotId).trim()
         || firstRouteParam(routeParams.jobId).trim()
     );
+    const hasAuthorizedClientHomeContext = firstRouteParam(routeParams.providerMode) === '1';
 
-    if (!companyId || !propertyId || !estimateSessionId || !hasAssignedWorkContext) return false;
+    if (!companyId || !propertyId || !estimateSessionId) return false;
+    if (!hasAssignedWorkContext && !hasAuthorizedClientHomeContext) return false;
     if (!allowedCompanyIds.includes(companyId)) return false;
 
     return returnTo === '/techos' || returnTo.startsWith('/techos?');

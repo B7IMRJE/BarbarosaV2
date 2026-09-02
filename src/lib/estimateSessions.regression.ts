@@ -15,9 +15,25 @@ export function runEstimateSessionRegressions() {
     serviceRequestRepipeSessionWorksWithoutItemId();
     itemBasedSessionPreservesProviderContext();
     equivalentResolutionContextsShareOneSessionKey();
+    explicitNewQuoteUsesADistinctResolutionKey();
     staleRouteSessionsRetryWithoutWeakeningAuthorization();
     staleCrossContextSessionsCannotReceiveEvidence();
     archivedAndClosedSessionsAreNotDraftable();
+}
+
+function explicitNewQuoteUsesADistinctResolutionKey() {
+    const input = {
+        companyId: COMPANY_ID,
+        propertyId: PROPERTY_ID,
+        homeItemId: ITEM_ID,
+        category: 'valve_replacement',
+        source: 'provider_mode' as const,
+    };
+
+    assert(
+        buildEstimateSessionResolutionKey(input) !== buildEstimateSessionResolutionKey({ ...input, forceNew: true }),
+        'Create New must not share the resume-draft session resolution key.',
+    );
 }
 
 function missingSessionIdIsRejectedByContract() {

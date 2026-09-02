@@ -766,6 +766,11 @@ function isAuthorizedWorkspacePath(
         isTechOSPath(pathname) ||
         isEstimatePath(pathname) ||
         (!salesTech && isJobWorkflowPath(pathname)) ||
+        (salesTech && isSalesEstimatePresentationRouteAllowed(
+          pathname,
+          routeParams,
+          companyIds,
+        )) ||
         (!salesTech && pathname === COMPANY_INVITATIONS_ROUTE) ||
         pathname === PROFILE_CHANGE_PASSWORD_ROUTE
       );

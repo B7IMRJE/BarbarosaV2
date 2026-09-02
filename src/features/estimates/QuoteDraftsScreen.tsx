@@ -5,6 +5,7 @@ import HomeHeader from '../../components/HomeHeader';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
     archiveCompanyEstimateDraft,
+    filterEstimateDraftsForItem,
     formatEstimateBuilderStep,
     listCompanyEstimateDrafts,
     resolveEstimateDraftResumeRouteMode,
@@ -32,9 +33,14 @@ export default function QuoteDraftsScreen() {
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
         mode?: string | string[];
+        homeItemId?: string | string[];
+        itemSlug?: string | string[];
+        itemName?: string | string[];
     }>();
     const requestedCompanyId = firstParam(params.companyId);
     const requestedPropertyId = firstParam(params.propertyId);
+    const requestedHomeItemId = firstParam(params.homeItemId);
+    const requestedItemName = firstParam(params.itemName);
     const [access, setAccess] = useState<CompanyPermissionAccess | null>(null);
     const [drafts, setDrafts] = useState<CompanyEstimateDraftSummary[]>([]);
     const [quoteHistory, setQuoteHistory] = useState<CompanyEstimateQuoteHistorySummary[]>([]);
@@ -53,7 +59,7 @@ export default function QuoteDraftsScreen() {
 
     useEffect(() => {
         void loadDraftsEvent();
-    }, [requestedCompanyId, requestedPropertyId]);
+    }, [requestedCompanyId, requestedPropertyId, requestedHomeItemId]);
 
     async function loadDrafts() {
         setLoading(true);
@@ -80,9 +86,10 @@ export default function QuoteDraftsScreen() {
         ]);
 
         if (draftResult.status === 'fulfilled') {
-            const nextDrafts = requestedPropertyId
-                ? draftResult.value.filter((draft) => draft.propertyId === requestedPropertyId)
-                : draftResult.value;
+            const nextDrafts = filterEstimateDraftsForItem(draftResult.value, {
+                propertyId: requestedPropertyId,
+                homeItemId: requestedHomeItemId,
+            });
 
             setDrafts(nextDrafts);
             setMessage(nextDrafts.length > 0
@@ -98,9 +105,13 @@ export default function QuoteDraftsScreen() {
             setQuoteHistory([]);
             setHistoryMessage('Open Quotes & Estimates from a customer home or assigned job to see that customer’s complete quote history.');
         } else if (historyResult.status === 'fulfilled') {
-            setQuoteHistory(historyResult.value);
-            setHistoryMessage(historyResult.value.length > 0
-                ? `${historyResult.value.length} company quote record${historyResult.value.length === 1 ? '' : 's'} for this customer.`
+            const nextHistory = filterEstimateDraftsForItem(historyResult.value, {
+                propertyId: requestedPropertyId,
+                homeItemId: requestedHomeItemId,
+            });
+            setQuoteHistory(nextHistory);
+            setHistoryMessage(nextHistory.length > 0
+                ? `${nextHistory.length} company quote record${nextHistory.length === 1 ? '' : 's'} for this ${requestedItemName || 'customer'}.`
                 : 'No previous company quotes have been saved for this customer yet.'
             );
         } else {
@@ -127,6 +138,7 @@ export default function QuoteDraftsScreen() {
                 providerMode: resumeRouteMode.providerMode,
                 mode: resumeRouteMode.mode,
                 step: draft.currentBuilderStep,
+                newEstimate: '',
             }),
         } as any);
     }
@@ -153,6 +165,8 @@ export default function QuoteDraftsScreen() {
                     companyId: access.companyId,
                     propertyId: requestedPropertyId,
                     step: 'work',
+                    estimateSessionId: '',
+                    newEstimate: '1',
                 }),
             } as any);
             return;
@@ -204,10 +218,18 @@ export default function QuoteDraftsScreen() {
 
                 <View style={heroStyle}>
                     <Text style={eyebrowStyle}>QUOTES & ESTIMATES</Text>
-                    <Text style={titleStyle}>{requestedPropertyId ? 'Customer quotes & estimates' : 'Saved quote drafts'}</Text>
+                    <Text style={titleStyle}>
+                        {requestedItemName
+                            ? `${requestedItemName} quotes & estimates`
+                            : requestedPropertyId
+                                ? 'Customer quotes & estimates'
+                                : 'Saved quote drafts'}
+                    </Text>
                     <Text style={subtitleStyle}>
                         {requestedPropertyId
-                            ? 'Resume your active work or review quotes previously prepared for this customer by authorized company team members.'
+                            ? requestedItemName
+                                ? 'Resume an existing draft or create a separate new quote for this item.'
+                                : 'Resume your active work or review quotes previously prepared for this customer by authorized company team members.'
                             : 'Every quote step is saved to the company workspace. Resume a draft on another visit or delete one you no longer need.'}
                     </Text>
                     <Text style={buildStyle}>{BUILD_DISPLAY}</Text>
@@ -247,7 +269,7 @@ export default function QuoteDraftsScreen() {
                             <Text style={updatedStyle}>Saved {formatSavedTime(draft.updatedAt)}</Text>
                             <View style={actionRowStyle}>
                                 <TouchableOpacity onPress={() => openDraft(draft)} style={primaryButtonStyle}>
-                                    <Text style={primaryButtonTextStyle}>Resume Draft</Text>
+                                    <Text style={primaryButtonTextStyle}>Edit / Resume Draft</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     disabled={deletingId === draft.id}

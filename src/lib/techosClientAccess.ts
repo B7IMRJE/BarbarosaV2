@@ -89,6 +89,7 @@ export function buildEstimateJobWorkflowRoute({
     serviceRequestId,
     scheduleSlotId,
     jobId,
+    providerMode = false,
     presentation = false,
 }: {
     estimateSessionId: string;
@@ -99,6 +100,7 @@ export function buildEstimateJobWorkflowRoute({
     serviceRequestId?: string | null;
     scheduleSlotId?: string | null;
     jobId?: string | null;
+    providerMode?: boolean;
     presentation?: boolean;
 }) {
     const techOSReturnTo = resolveTechOSEstimateReturnRoute({ mode, returnTo, companyId });
@@ -115,6 +117,7 @@ export function buildEstimateJobWorkflowRoute({
             serviceRequestId: presentation ? serviceRequestId : null,
             scheduleSlotId: presentation ? scheduleSlotId : null,
             jobId: presentation ? jobId : null,
+            providerMode: presentation && providerMode ? '1' : null,
         }),
     };
 }
@@ -128,13 +131,13 @@ export function resolveTechOSEstimateReturnRoute({
     returnTo?: string | null;
     companyId?: string | null;
 }) {
-    if (String(mode || '').trim().toLowerCase() !== 'techos') return null;
-
     const requestedReturnTo = String(returnTo || '').trim();
 
     if (requestedReturnTo === '/techos' || requestedReturnTo.startsWith('/techos?')) {
         return requestedReturnTo;
     }
+
+    if (String(mode || '').trim().toLowerCase() !== 'techos') return null;
 
     return buildTechOSCurrentJobRoute({ companyId: String(companyId || '').trim() });
 }

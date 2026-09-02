@@ -105,6 +105,7 @@ function estimateApprovalPreservesTechOSReturnContext() {
         serviceRequestId: 'request-1',
         scheduleSlotId: 'slot-1',
         jobId: 'job-1',
+        providerMode: true,
         presentation: true,
     });
     assert(presentationRoute.params.presentation === '1', 'Present should open Job Workflow in homeowner presentation mode instead of the dashboard workflow.');
@@ -113,6 +114,7 @@ function estimateApprovalPreservesTechOSReturnContext() {
     assert(presentationRoute.params.serviceRequestId === 'request-1', 'Presentation should preserve the assigned request.');
     assert(presentationRoute.params.scheduleSlotId === 'slot-1', 'Presentation should preserve the assigned visit.');
     assert(presentationRoute.params.jobId === 'job-1', 'Presentation should preserve the assigned job.');
+    assert(presentationRoute.params.providerMode === '1', 'Presentation should preserve authorized client HomeOS context for older drafts.');
 }
 
 function nonTechOSEstimateApprovalOmitsTechOSReturnContext() {
@@ -135,6 +137,13 @@ function techOSEstimateBackUsesCurrentJobContext() {
             companyId: 'company-1',
         }) === '/techos?companyId=company-1&slotId=slot-1',
         'TechOS estimate Back should return to the selected job instead of browser history.'
+    );
+    assert(
+        resolveTechOSEstimateReturnRoute({
+            returnTo: '/techos?companyId=company-1&slotId=slot-1',
+            companyId: 'company-1',
+        }) === '/techos?companyId=company-1&slotId=slot-1',
+        'An older provider draft should recover its explicit TechOS return route even when its saved mode is missing.'
     );
 }
 
