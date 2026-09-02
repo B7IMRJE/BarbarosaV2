@@ -128,6 +128,7 @@ export default function JobWorkflowScreen() {
     const [returnPickupNotes, setReturnPickupNotes] = useState('');
     const [returnScheduledFor, setReturnScheduledFor] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
+    const [approvalMessage, setApprovalMessage] = useState('');
     const [jobCardOpen, setJobCardOpen] = useState(false);
     const [jobCardLoading, setJobCardLoading] = useState(false);
     const [jobCardMessage, setJobCardMessage] = useState('');
@@ -340,11 +341,14 @@ export default function JobWorkflowScreen() {
     async function acceptSelectedWork() {
         if (!bundle || busy) return;
         if (hasConflictingEstimateSelectionGroups(bundle.options, selectedChoiceIds)) {
-            setMessage('Choose only one equipment and warranty package from each option group.');
+            const nextMessage = 'Choose only one equipment and warranty package from each option group.';
+            setMessage(nextMessage);
+            setApprovalMessage(nextMessage);
             return;
         }
         setBusy(true);
         setMessage('Saving signed approval...');
+        setApprovalMessage('Saving signed approval...');
         try {
             await acceptJobWorkflowQuote({
                 workflowId: bundle.workflow.id,
@@ -356,8 +360,14 @@ export default function JobWorkflowScreen() {
             });
             await refresh();
             setMessage('Selected work approved and job sold.');
+            setApprovalMessage('');
+            requestAnimationFrame(() => {
+                workflowScrollRef.current?.scrollTo({ y: 0, animated: true });
+            });
         } catch (error) {
-            setMessage(errorMessage(error));
+            const nextMessage = errorMessage(error);
+            setMessage(nextMessage);
+            setApprovalMessage(nextMessage);
         } finally {
             setBusy(false);
         }
@@ -1027,6 +1037,11 @@ export default function JobWorkflowScreen() {
                         disabled={busy || !workApprovalReady}
                         onPress={acceptSelectedWork}
                     />
+                    {!!approvalMessage && (
+                        <View style={noticeStyle}>
+                            <Text style={noticeTextStyle}>{approvalMessage}</Text>
+                        </View>
+                    )}
                     <SecondaryButton title="Back to Cancellation Notice" onPress={() => openApprovalPage(2)} />
                 </Section>
             )}
