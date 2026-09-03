@@ -1,11 +1,12 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';
 import { useTheme } from '../../theme/useTheme';
 import {
     getServiceRequestThreadSender,
+    isServiceRequestThreadMessageFromViewer,
     loadServiceRequestThread,
     sendServiceRequestThreadMessage,
     type ServiceRequestThreadViewer,
@@ -19,12 +20,14 @@ export default function ServiceRequestThread({
     scheduleSlotId = null,
     viewer,
     title = 'Job messages',
+    readOnly = false,
 }: {
     companyId: string;
     serviceRequestId: string;
     scheduleSlotId?: string | null;
     viewer: ServiceRequestThreadViewer;
     title?: string;
+    readOnly?: boolean;
 }) {
     const { theme } = useTheme();
     const [messages, setMessages] = useState<ServiceRequestActivityEvent[]>([]);
@@ -32,10 +35,13 @@ export default function ServiceRequestThread({
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [message, setMessage] = useState('');
+    const messageListRef = useRef<ScrollView>(null);
 
-    async function refreshThread(showLoading = true) {
-        if (showLoading) setLoading(true);
-        setMessage('');
+    const refreshThread = useCallback(async (showLoading = true) => {
+        if (showLoading) {
+            setLoading(true);
+            setMessage('');
+        }
 
         try {
             const nextMessages = await loadServiceRequestThread({
@@ -49,7 +55,7 @@ export default function ServiceRequestThread({
         } finally {
             if (showLoading) setLoading(false);
         }
-    }
+    }, [companyId, serviceRequestId, viewer]);
 
     useEffect(() => {
         let active = true;
@@ -90,11 +96,15 @@ export default function ServiceRequestThread({
                 }
             )
             .subscribe();
+        const intervalId = setInterval(() => {
+            void refreshThread(false);
+        }, 10_000);
 
         return () => {
+            clearInterval(intervalId);
             void supabase.removeChannel(channel);
         };
-    }, [companyId, serviceRequestId, viewer]);
+    }, [companyId, refreshThread, serviceRequestId, viewer]);
 
     async function sendMessage() {
         if (sending) return;
@@ -111,13 +121,8 @@ export default function ServiceRequestThread({
                 message: draft,
             });
 
-            if (result.status !== 'recorded' || !result.event) {
-                setMessage(result.message);
-                return;
-            }
-
             setDraft('');
-            setMessages((current) => [...current, result.event!]);
+            setMessages((current) => [...current.filter((item) => item.id !== result.id), result]);
         } catch (error) {
             setMessage(getThreadErrorMessage(error));
         } finally {
@@ -125,14 +130,20 @@ export default function ServiceRequestThread({
         }
     }
 
-    const recipient = viewer === 'technician' ? 'Office / Dispatch' : 'Technician';
+    const recipient = viewer === 'homeowner' ? 'service team' : 'homeowner';
+
+    useEffect(() => {
+        const timeoutId = setTimeout(() => messageListRef.current?.scrollToEnd({ animated: true }), 80);
+
+        return () => clearTimeout(timeoutId);
+    }, [messages]);
 
     return (
         <ThemedCard style={styles.card}>
             <View style={styles.headingRow}>
                 <View style={styles.headingCopy}>
                     <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-                    <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Private job conversation with {recipient}. New messages appear here automatically.</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Job conversation with the {recipient}. New messages appear here automatically.</Text>
                 </View>
                 <ThemedButton
                     title="Refresh"
@@ -148,12 +159,16 @@ export default function ServiceRequestThread({
             ) : messages.length === 0 ? (
                 <Text style={[styles.empty, { color: theme.colors.mutedText }]}>No messages yet. Start the conversation when the job needs attention.</Text>
             ) : (
-                <View style={styles.messageList}>
+                <ScrollView
+                    ref={messageListRef}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    style={[styles.messageScroller, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={styles.messageList}
+                >
                     {messages.map((item) => {
                         const sender = getServiceRequestThreadSender(item);
-                        const sentByViewer = viewer === 'technician'
-                            ? sender === 'Technician'
-                            : sender === 'Office / Dispatch';
+                        const sentByViewer = isServiceRequestThreadMessageFromViewer(item, viewer);
 
                         return (
                             <View
@@ -179,25 +194,33 @@ export default function ServiceRequestThread({
                             </View>
                         );
                     })}
-                </View>
+                </ScrollView>
             )}
 
             {!!message && <Text style={[styles.notice, { color: theme.colors.mutedText }]}>{message}</Text>}
 
-            <DictationTextInput
-                value={draft}
-                onChangeText={setDraft}
-                placeholder={`Message ${recipient}`}
-                placeholderTextColor={theme.colors.mutedText}
-                multiline
-                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.background }]}
-            />
-            <ThemedButton
-                title={sending ? 'Sending...' : `Send to ${recipient}`}
-                disabled={sending || !draft.trim()}
-                onPress={() => void sendMessage()}
-                style={styles.sendButton}
-            />
+            {readOnly ? (
+                <Text style={[styles.notice, { color: theme.colors.mutedText }]}>This service request is closed. The conversation remains available to review.</Text>
+            ) : (
+                <>
+                    <DictationTextInput
+                        accessibilityLabel={`Message ${recipient}`}
+                        value={draft}
+                        onChangeText={setDraft}
+                        placeholder={`Message ${recipient}`}
+                        placeholderTextColor={theme.colors.mutedText}
+                        maxLength={2000}
+                        multiline
+                        style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.background }]}
+                    />
+                    <ThemedButton
+                        title={sending ? 'Sending...' : `Send to ${recipient}`}
+                        disabled={sending || !draft.trim()}
+                        onPress={() => void sendMessage()}
+                        style={styles.sendButton}
+                    />
+                </>
+            )}
         </ThemedCard>
     );
 }
@@ -206,8 +229,8 @@ function getThreadErrorMessage(error: unknown) {
     const raw = error instanceof Error ? error.message : 'Thread messages could not load.';
     const normalized = raw.toLowerCase();
 
-    if (normalized.includes('get_technician_service_request_events') || normalized.includes('could not find the function')) {
-        return 'Job messaging is ready in the app, but its production database update has not been installed yet.';
+    if (normalized.includes('get_service_request_communication_thread') || normalized.includes('send_service_request_communication_message') || normalized.includes('could not find the function')) {
+        return 'The communication thread is ready in the app, but its database update has not been installed yet.';
     }
 
     return raw;
@@ -231,7 +254,8 @@ const styles = {
     refreshText: { fontSize: 12 },
     loading: { marginVertical: 14 },
     empty: { fontSize: 14, lineHeight: 20, paddingVertical: 4 },
-    messageList: { gap: 8 },
+    messageScroller: { borderRadius: 14, borderWidth: 1, maxHeight: 360, minHeight: 92 },
+    messageList: { gap: 8, padding: 10 },
     bubble: { borderRadius: 14, borderWidth: 1, maxWidth: '88%' as const, padding: 11 },
     sender: { fontSize: 12, fontWeight: '900' as const },
     body: { fontSize: 14, lineHeight: 20, marginTop: 4 },

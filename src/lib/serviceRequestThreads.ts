@@ -1,12 +1,19 @@
 import {
     normalizeServiceRequestActivityEvents,
-    recordServiceRequestEvent,
     type ServiceRequestActivityEvent,
-    type ServiceRequestEventWriteResult,
 } from './serviceRequestActivity';
 import { supabase } from './supabase';
-
-export type ServiceRequestThreadViewer = 'dispatch' | 'technician';
+import {
+    isServiceRequestThreadMessage,
+    type ServiceRequestThreadViewer,
+} from './serviceRequestThreadCore';
+export {
+    getServiceRequestThreadSender,
+    isServiceRequestThreadMessage,
+    isServiceRequestThreadMessageFromViewer,
+    isServiceRequestThreadReadOnly,
+    type ServiceRequestThreadViewer,
+} from './serviceRequestThreadCore';
 
 export async function loadServiceRequestThread(input: {
     companyId: string;
@@ -18,15 +25,10 @@ export async function loadServiceRequestThread(input: {
 
     if (!companyId || !serviceRequestId) return [];
 
-    const { data, error } = await supabase.rpc(
-        input.viewer === 'technician'
-            ? 'get_technician_service_request_events'
-            : 'get_service_request_events',
-        {
-            p_company_id: companyId,
-            p_service_request_id: serviceRequestId,
-        }
-    );
+    const { data, error } = await supabase.rpc('get_service_request_communication_thread', {
+        p_company_id: companyId,
+        p_service_request_id: serviceRequestId,
+    });
 
     if (error) {
         throw new Error(error.message);
@@ -43,53 +45,31 @@ export async function sendServiceRequestThreadMessage(input: {
     scheduleSlotId: string | null;
     sender: ServiceRequestThreadViewer;
     message: string;
-}): Promise<ServiceRequestEventWriteResult> {
+}): Promise<ServiceRequestActivityEvent> {
     const message = input.message.trim();
 
     if (!message) {
         throw new Error('Write a message before sending it.');
     }
 
-    return recordServiceRequestEvent({
-        companyId: input.companyId,
-        serviceRequestId: input.serviceRequestId,
-        scheduleSlotId: input.scheduleSlotId,
-        eventType: `${input.sender}_message`,
-        message,
-        eventVisibility: 'internal',
-        audience: input.sender === 'technician' ? 'dispatch' : 'technician',
-        notificationChannels: ['in_app'],
-        metadata: {
-            source: 'service_request_thread',
-            thread_kind: 'job_message',
-            sender_role: input.sender,
-        },
+    if (message.length > 2000) {
+        throw new Error('Message must be 2,000 characters or fewer.');
+    }
+
+    const { data, error } = await supabase.rpc('send_service_request_communication_message', {
+        p_company_id: input.companyId.trim(),
+        p_service_request_id: input.serviceRequestId.trim(),
+        p_message: message,
+        p_schedule_slot_id: input.scheduleSlotId?.trim() || null,
     });
-}
 
-export function isServiceRequestThreadMessage(event: ServiceRequestActivityEvent) {
-    const source = readText(event.metadata.source);
-    const threadKind = readText(event.metadata.thread_kind);
-    const type = readText(event.event_type);
+    if (error) throw new Error(error.message);
 
-    return source === 'service_request_thread'
-        || threadKind === 'job_message'
-        || type === 'technician_message'
-        || type === 'dispatch_message';
-}
+    const saved = normalizeServiceRequestActivityEvents(data)[0];
 
-export function getServiceRequestThreadSender(event: ServiceRequestActivityEvent) {
-    const sender = readText(event.metadata.sender_role);
-    const eventType = readText(event.event_type);
+    if (!saved) throw new Error('The message was sent but could not be read.');
 
-    if (sender === 'technician' || eventType === 'technician_message') return 'Technician';
-    if (sender === 'dispatch' || eventType === 'dispatch_message') return 'Office / Dispatch';
-
-    return 'Team member';
-}
-
-function readText(value: unknown) {
-    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return saved;
 }
 
 function timestamp(value: string | null) {

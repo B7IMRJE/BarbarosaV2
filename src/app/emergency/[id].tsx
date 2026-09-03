@@ -12,6 +12,7 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import HomeownerRequestTimeline from '../../components/serviceRequests/HomeownerRequestTimeline';
+import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -34,11 +35,13 @@ import {
 } from '../../lib/homeownerActiveRequests';
 import { getHomeEmergencyDisplayStatus } from '../../lib/homeEmergencyStatus';
 import {
+    isHomeServiceReviewEligible,
     loadHomeServiceReviewsForEmergency,
     saveHomeServiceReview,
     type HomeServiceReview,
     type HomeServiceReviewTarget,
 } from '../../lib/homeServiceReviews';
+import { isServiceRequestThreadReadOnly } from '../../lib/serviceRequestThreads';
 import {
     activateConnectedProviderForProperty,
     loadPreferredProviderForProperty,
@@ -259,11 +262,18 @@ export default function EmergencyDetailScreen() {
     }
 
     async function loadReviewsForEmergency(emergencyId: string) {
-        const loadedReviews = await loadHomeServiceReviewsForEmergency(emergencyId);
+        try {
+            const loadedReviews = await loadHomeServiceReviewsForEmergency(emergencyId);
 
-        setReviews(loadedReviews);
-        setTechnicianReviewForm(reviewToForm(findReview(loadedReviews, 'technician')));
-        setCompanyReviewForm(reviewToForm(findReview(loadedReviews, 'company')));
+            setReviews(loadedReviews);
+            setTechnicianReviewForm(reviewToForm(findReview(loadedReviews, 'technician')));
+            setCompanyReviewForm(reviewToForm(findReview(loadedReviews, 'company')));
+        } catch (error) {
+            setReviews([]);
+            setTechnicianReviewForm(emptyReviewForm);
+            setCompanyReviewForm(emptyReviewForm);
+            setReviewMessage(`Reviews could not load: ${getErrorMessage(error)}`);
+        }
     }
 
     async function loadLinkedServiceRequestStatus(serviceRequestId: string) {
@@ -658,6 +668,14 @@ export default function EmergencyDetailScreen() {
     );
     const savedTechnicianReview = findReview(reviews, 'technician');
     const savedCompanyReview = findReview(reviews, 'company');
+    const linkedCompanyId = firstText(emergency.service_request_company_id);
+    const reviewCompanyName = linkedCompanyId && linkedCompanyId === preferredProvider?.companyId
+        ? preferredProvider.companyName
+        : savedCompanyReview?.company_name || 'Provider company on file';
+    const reviewsAvailable = !!currentServiceRequestId && (
+        emergency.status === 'Resolved'
+        || isHomeServiceReviewEligible(sentServiceRequestStatus, sentServiceRequestEventType)
+    );
 
     return (
         <ScrollView
@@ -791,6 +809,18 @@ export default function EmergencyDetailScreen() {
                     title="Request photos and videos"
                 />
 
+                {currentServiceRequestId && firstText(emergency.service_request_company_id, preferredProvider?.companyId) && (
+                    <View style={{ marginBottom: 14 }}>
+                        <ServiceRequestThread
+                            companyId={firstText(emergency.service_request_company_id, preferredProvider?.companyId)}
+                            serviceRequestId={currentServiceRequestId}
+                            viewer="homeowner"
+                            title="Communication thread"
+                            readOnly={isServiceRequestThreadReadOnly(sentServiceRequestStatus)}
+                        />
+                    </View>
+                )}
+
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
                     {emergency.status !== 'Resolved' && (
                         <ThemedButton
@@ -803,7 +833,7 @@ export default function EmergencyDetailScreen() {
                     )}
                 </View>
 
-                <ThemedCard style={{ marginBottom: 14 }}>
+                {reviewsAvailable && <ThemedCard style={{ marginBottom: 14 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Service Reviews
                     </Text>
@@ -829,7 +859,7 @@ export default function EmergencyDetailScreen() {
                         />
                         <ServiceReviewCard
                             title="Review Company"
-                            targetName={preferredProvider?.companyName || savedCompanyReview?.company_name || 'Company not connected yet'}
+                            targetName={reviewCompanyName}
                             tags={companyReviewTags}
                             categories={companyReviewCategories}
                             form={companyReviewForm}
@@ -849,7 +879,7 @@ export default function EmergencyDetailScreen() {
                             {reviewMessage}
                         </Text>
                     )}
-                </ThemedCard>
+                </ThemedCard>}
 
                 {photos.length > 0 && (
                     <ThemedCard style={{ marginBottom: 14 }}>

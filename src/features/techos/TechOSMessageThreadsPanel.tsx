@@ -52,13 +52,13 @@ export default function TechOSMessageThreadsPanel({
     return (
         <View style={styles.root}>
             <ThemedCard style={styles.introCard}>
-                <Text style={[styles.title, { color: theme.colors.text }]}>Messages</Text>
-                <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Message the office or Dispatch from the specific job you are working on. The conversation stays with that job.</Text>
+                <Text style={[styles.title, { color: theme.colors.text }]}>Customer Messages</Text>
+                <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Message the homeowner from the specific job you are working on. The conversation stays with that service request.</Text>
             </ThemedCard>
 
             {threads.length === 0 ? (
                 <ThemedCard>
-                    <Text style={[styles.empty, { color: theme.colors.mutedText }]}>Messages will appear here when a job is assigned to you.</Text>
+                    <Text style={[styles.empty, { color: theme.colors.mutedText }]}>Customer conversations will appear here when a job is assigned to you.</Text>
                 </ThemedCard>
             ) : (
                 <>
@@ -97,7 +97,7 @@ export default function TechOSMessageThreadsPanel({
                             serviceRequestId={selectedThread.request.id}
                             scheduleSlotId={selectedThread.slot.id}
                             viewer="technician"
-                            title={`Job messages · ${getJobTitle(selectedThread)}`}
+                            title={`Customer communication · ${getJobTitle(selectedThread)}`}
                         />
                     )}
                 </>

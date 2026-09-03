@@ -12,6 +12,8 @@ import { MainDestinationCard } from '../components/homeos/HomeOSVisualFoundation
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ServiceRequestMediaPicker from '../components/serviceRequests/ServiceRequestMediaPicker';
 import HomeownerRequestTimeline from '../components/serviceRequests/HomeownerRequestTimeline';
+import HomeServiceReviewsPanel from '../components/serviceRequests/HomeServiceReviewsPanel';
+import ServiceRequestThread from '../components/serviceRequests/ServiceRequestThread';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
@@ -28,6 +30,7 @@ import {
   getHomeownerFacingStatusLabel,
   isActiveHomeownerServiceRequest,
 } from '../lib/homeownerActiveRequests';
+import { isHomeServiceReviewEligible } from '../lib/homeServiceReviews';
 import { signOutFromHomeOS } from '../lib/homeosSignOut';
 import { resolveHomeDashboardActionCardPalettes } from '../lib/homeDashboardActionCards';
 import {
@@ -35,6 +38,10 @@ import {
   markHomeownerServiceNotificationRead,
   type ServiceRequestActivityEvent,
 } from '../lib/serviceRequestActivity';
+import {
+  isServiceRequestThreadMessage,
+  isServiceRequestThreadReadOnly,
+} from '../lib/serviceRequestThreads';
 import {
   hasUnresolvedServiceRequestMedia,
   uploadPendingServiceRequestMedia,
@@ -221,7 +228,6 @@ export function HomeServicesScreen({
   const [serviceRequestTimelineById, setServiceRequestTimelineById] = useState<Record<string, ServiceRequestActivityEvent[]>>({});
   const [serviceRequestTimelineMessage, setServiceRequestTimelineMessage] = useState('');
   const [selectedServiceRequestId, setSelectedServiceRequestId] = useState('');
-  const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
   const [pendingServiceRequest, setPendingServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
@@ -267,7 +273,6 @@ export function HomeServicesScreen({
       setServiceRequestTimelineById({});
       setServiceRequestTimelineMessage('');
       setSelectedServiceRequestId('');
-      setServiceRequestNoteById({});
       setLastCreatedServiceRequest(null);
 
       if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -303,7 +308,6 @@ export function HomeServicesScreen({
       setProviderSelectionCompanyId('');
       setServiceRequestMessage('');
       setHomeServiceRequests([]);
-      setServiceRequestNoteById({});
       setLastCreatedServiceRequest(null);
     } else {
       setProviderCompanyName('');
@@ -844,34 +848,6 @@ export function HomeServicesScreen({
     if (refreshed) {
       setServiceRequestMessage('Service requests refreshed.');
     }
-  }
-
-  async function handleAddServiceRequestNote(request: HomeServiceRequest) {
-    const note = (serviceRequestNoteById[request.id] || '').trim();
-
-    if (!note) {
-      setServiceRequestMessage('Write a note before adding it to the request.');
-      return;
-    }
-
-    setServiceRequestActionId(request.id);
-    setServiceRequestMessage('Adding note...');
-
-    const { error } = await supabase.rpc('add_service_request_note', {
-      p_service_request_id: request.id,
-      p_message: note,
-    });
-
-    setServiceRequestActionId(null);
-
-    if (error) {
-      setServiceRequestMessage(formatServiceEventError(error.message, 'Service request notes are not installed yet. Review SQL 580 before adding notes.'));
-      return;
-    }
-
-    setServiceRequestNoteById((current) => ({ ...current, [request.id]: '' }));
-    setServiceRequestMessage('Note added to the service request.');
-    await loadHomeServiceRequests(request.property_id);
   }
 
   async function handleRequestServiceUpdate(request: HomeServiceRequest) {
@@ -1492,10 +1468,14 @@ export function HomeServicesScreen({
               {homeServiceRequests.map((request) => {
                 const isActing = serviceRequestActionId === request.id;
                 const timelineEvents = serviceRequestTimelineById[request.id] || [];
-                const latestTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
+                const appointmentEvents = timelineEvents.filter((event) => !isServiceRequestThreadMessage(event));
+                const latestTimelineEvent = appointmentEvents[appointmentEvents.length - 1] || null;
                 const isActiveRequest = isActiveHomeownerServiceRequest(request);
                 const statusLabel = getHomeownerFacingStatusLabel(request.status, latestTimelineEvent?.event_type);
                 const selected = selectedServiceRequestId === request.id;
+                const requestProviderName = request.company_id === preferredProvider?.companyId
+                  ? preferredProvider.companyName
+                  : 'Provider company on file';
 
                 return (
                   <View
@@ -1512,7 +1492,7 @@ export function HomeServicesScreen({
                       {formatLabel(request.request_type)} request / {statusLabel}
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
-                      Provider company: {preferredProvider?.companyName || 'Provider company on file'}
+                      Provider company: {requestProviderName}
                       {' / '}Created {formatDate(request.created_at)}
                       {' / '}{formatServiceRequestReference(request)}
                     </Text>
@@ -1530,7 +1510,7 @@ export function HomeServicesScreen({
                       <HomeownerRequestTimeline
                         title="Appointment Updates"
                         emptyMessage="Updates will appear here when your appointment is scheduled or your technician shares a customer-visible status."
-                        entries={timelineEvents.map((event) => ({
+                        entries={appointmentEvents.map((event) => ({
                           id: event.id,
                           title: formatServiceTimelineTitle(event.event_type),
                           message: event.message || 'Appointment update',
@@ -1539,36 +1519,18 @@ export function HomeServicesScreen({
                       />
                     </View>
 
+                    <View style={{ marginTop: scaleIcon(10) }}>
+                      <ServiceRequestThread
+                        companyId={request.company_id}
+                        serviceRequestId={request.id}
+                        viewer="homeowner"
+                        title="Communication thread"
+                        readOnly={isServiceRequestThreadReadOnly(request.status)}
+                      />
+                    </View>
+
                     {isActiveRequest && (
-                      <>
-                        <DictationTextInput
-                          value={serviceRequestNoteById[request.id] || ''}
-                          onChangeText={(text) => setServiceRequestNoteById((current) => ({ ...current, [request.id]: text }))}
-                          placeholder="Add a note for dispatch"
-                          placeholderTextColor={theme.colors.mutedText}
-                          multiline
-                          style={{
-                            minHeight: scaleIcon(72),
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                            borderRadius: theme.radii.card,
-                            padding: scaleIcon(10),
-                            color: theme.colors.text,
-                            fontSize: scaleFont(13),
-                            fontWeight: '700',
-                            textAlignVertical: 'top',
-                            marginTop: scaleIcon(10),
-                          }}
-                        />
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(10) }}>
-                          <ThemedButton
-                            title={isActing ? 'Saving...' : 'Add Note'}
-                            variant="secondary"
-                            disabled={isActing}
-                            onPress={() => handleAddServiceRequestNote(request)}
-                            style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
-                            textStyle={{ fontSize: scaleFont(13) }}
-                          />
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(10) }}>
                           <ThemedButton
                             title={isActing ? 'Requesting...' : 'Request Update'}
                             disabled={isActing}
@@ -1576,8 +1538,16 @@ export function HomeServicesScreen({
                             style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
                             textStyle={{ fontSize: scaleFont(13) }}
                           />
-                        </View>
-                      </>
+                      </View>
+                    )}
+
+                    {isHomeServiceReviewEligible(request.status, latestTimelineEvent?.event_type) && (
+                      <HomeServiceReviewsPanel
+                        serviceRequestId={request.id}
+                        propertyId={request.property_id}
+                        companyId={request.company_id}
+                        companyName={requestProviderName}
+                      />
                     )}
                   </View>
                 );
@@ -1694,6 +1664,7 @@ function formatServiceTimelineTitle(eventType?: string | null) {
     appointment_delayed: 'Appointment Delayed',
     work_completed: 'Work Completed',
     work_completed_rating_requested: 'Work Completed',
+    communication_message: 'New Message',
   };
 
   return labels[normalized] || formatLabel(eventType);
@@ -1709,20 +1680,6 @@ function getTimeValue(value?: string | null) {
 
 function shortId(value?: string | null) {
   return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
-}
-
-function formatServiceEventError(message: string, setupMessage: string) {
-  const normalized = normalizeText(message);
-
-  if (
-    normalized.includes('schema cache') ||
-    normalized.includes('function') ||
-    normalized.includes('service_request_events')
-  ) {
-    return setupMessage;
-  }
-
-  return `Could not update service request: ${message}`;
 }
 
 function getErrorMessage(error: unknown) {

@@ -3495,20 +3495,13 @@ function DispatchRequestCard({
                             {formatLabel(event.event_type)}: {event.message || 'No message.'}
                         </Text>
                     ))}
-                    {!!currentScheduleSlot ? (
-                        <ServiceRequestThread
-                            companyId={request.company_id}
-                            serviceRequestId={request.id}
-                            scheduleSlotId={currentScheduleSlot.id}
-                            viewer="dispatch"
-                            title={`Job messages · ${assignedTechnicianLabel}`}
-                        />
-                    ) : (
-                        <View style={[secondaryActionPanelStyle, { borderColor: theme.colors.border }]}>
-                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Job messages</Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Assign a technician before opening the private job conversation.</Text>
-                        </View>
-                    )}
+                    <ServiceRequestThread
+                        companyId={request.company_id}
+                        serviceRequestId={request.id}
+                        scheduleSlotId={currentScheduleSlot?.id || null}
+                        viewer="dispatch"
+                        title={`Customer communication · ${assignedTechnicianLabel}`}
+                    />
                     <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
                         Schedule / Assign
                     </Text>
