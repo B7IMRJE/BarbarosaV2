@@ -48,6 +48,7 @@ export function runTechOSWorkflowRegressions() {
     workflowOrderingRequiresConfirmation();
     workflowStatusesUpdateHomeownerTrackerLanguage();
     workflowStatusesMoveDispatchLanes();
+    unacceptedEmergencyDoesNotInheritWorkflowReadiness();
     authorizationFailureCanSurfaceVisibleMessage();
     duplicateTapsUseStableTransitionIdentity();
     providerModeContextPreservesRequestAndSlot();
@@ -315,6 +316,13 @@ function workflowStatusesMoveDispatchLanes() {
     });
 }
 
+function unacceptedEmergencyDoesNotInheritWorkflowReadiness() {
+    const request = createRequest('synthetic-unaccepted-emergency');
+    const slot = { ...createSlot(request.id, 'in_progress'), technician_acknowledged_at: null };
+    const sections = buildDispatchWallSections([request], [slot], [createTechnician()], new Date(2026, 6, 12, 12));
+    assert(getSectionCount(sections, request.id, 'emergency') === 1, 'A workflow status alone cannot substitute for acceptance or persisted legacy evidence.');
+}
+
 function authorizationFailureCanSurfaceVisibleMessage() {
     const resolution = resolveTechWorkflowTransition(TECH_WORKFLOW_ACTIONS[0], {
         slotId: 'slot-1',
@@ -458,6 +466,8 @@ function createSlot(requestId: string, status: string): DispatchWallScheduleSlot
         service_request_id: requestId,
         technician_company_user_id: 'tech-1',
         start_at: '2026-07-13T16:00:00.000Z',
+        // These workflow tests model an already accepted emergency visit.
+        technician_acknowledged_at: '2026-07-12T15:10:00.000Z',
         end_at: '2026-07-13T17:00:00.000Z',
         arrival_window_start: '2026-07-13T16:00:00.000Z',
         arrival_window_end: '2026-07-13T17:00:00.000Z',

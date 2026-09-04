@@ -9,15 +9,18 @@ export type EmergencyAssignmentSlot = {
     priority?: string | null;
     status?: string | null;
     technician_acknowledged_at?: string | null;
+    emergency_acceptance_compatibility?: string | null;
+    visit_closed_at?: string | null;
+    visit_outcome?: string | null;
 };
 
-const PRE_ACCEPTANCE_STATUSES = new Set([
-    '',
-    'tentative',
-    'scheduled',
-    'assigned',
-    'dispatched',
+const CLOSED_STATUSES = new Set([
+    'completed', 'complete', 'done', 'closed', 'cancelled', 'canceled', 'archived', 'void',
 ]);
+
+export function hasLegacyEmergencyCompatibility(slot?: EmergencyAssignmentSlot | null) {
+    return normalize(slot?.emergency_acceptance_compatibility) === 'existing_lead_activity';
+}
 
 export function isEmergencyAssignment(
     request?: EmergencyAssignmentRequest | null,
@@ -41,11 +44,12 @@ export function isEmergencyAssignmentAwaitingTechnician(
     if (!isEmergencyAssignment(request, slot)) return false;
     if (!normalize(slot?.technician_company_user_id)) return false;
     if (normalize(slot?.technician_acknowledged_at)) return false;
+    if (hasLegacyEmergencyCompatibility(slot)) return false;
+    if (normalize(slot?.visit_closed_at) || normalize(slot?.visit_outcome)) return false;
 
-    // Operational states are historical evidence that a technician already
-    // acted on a legacy assignment. The database migration records that
-    // evidence so new assignments cannot reach these states without accepting.
-    return PRE_ACCEPTANCE_STATUSES.has(normalize(slot?.status));
+    // A request-derived UI status alone is NOT evidence of lead acceptance.
+    // Use the persisted compatibility decision shared with the database guard.
+    return !CLOSED_STATUSES.has(normalize(slot?.status));
 }
 
 export function getEmergencyAssignmentAcceptanceLabel(
@@ -58,6 +62,10 @@ export function getEmergencyAssignmentAcceptanceLabel(
 
     if (isEmergencyAssignment(request, slot) && normalize(slot?.technician_acknowledged_at)) {
         return 'Emergency · Technician Accepted';
+    }
+
+    if (isEmergencyAssignment(request, slot) && hasLegacyEmergencyCompatibility(slot)) {
+        return 'Emergency · Legacy Assignment (no acceptance recorded)';
     }
 
     return '';

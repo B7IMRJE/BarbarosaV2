@@ -161,6 +161,7 @@ type ScheduleSlot = {
     notes: string | null;
     tech_status_note: string | null;
     technician_acknowledged_at: string | null;
+    emergency_acceptance_compatibility?: string | null;
     technician_acknowledged_by_user_id: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;
@@ -783,7 +784,7 @@ export default function DispatchBoardScreen() {
 
         const windowResult = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
@@ -792,7 +793,7 @@ export default function DispatchBoardScreen() {
         const requestResult = requestIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
                 .eq('company_id', companyIdToLoad)
                 .in('service_request_id', requestIds)
                 .order('start_at', { ascending: true })
@@ -4167,7 +4168,7 @@ async function loadTechnicianScheduleSlots({
 }) {
     const { data, error } = await supabase
         .from('job_schedule_slots')
-        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
         .eq('company_id', companyId)
         .eq('technician_company_user_id', technicianCompanyUserId)
         .lt('start_at', endAt.toISOString())
@@ -4201,6 +4202,7 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
                 technician_acknowledged_at: readStringField(record, 'technician_acknowledged_at'),
+                emergency_acceptance_compatibility: readStringField(record, 'emergency_acceptance_compatibility'),
                 technician_acknowledged_by_user_id: readStringField(record, 'technician_acknowledged_by_user_id'),
                 visit_outcome: readStringField(record, 'visit_outcome'),
                 visit_closed_at: readStringField(record, 'visit_closed_at'),

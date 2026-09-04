@@ -1,6 +1,6 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, usePathname } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -25,6 +25,7 @@ import {
     type HomeStoryCount,
 } from '../../lib/homePropertyAccess';
 import { syncMyProfile } from '../../lib/profileSync';
+import { type PendingHomeSetup } from '../../lib/home-creation-recovery';
 import { selectActiveProperty } from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -47,13 +48,15 @@ export default function CreateHomeOnboardingScreen() {
     const [errors, setErrors] = useState<FormErrors>({});
     const [canGoBack, setCanGoBack] = useState(false);
     const [message, setMessage] = useState('');
+    const [pendingHome, setPendingHome] = useState<PendingHomeSetup | null>(null);
+    const submittingRef = useRef(false);
 
     useEffect(() => {
         setCanGoBack(router.canGoBack());
     }, []);
 
     async function createHome() {
-        if (submitting) return;
+        if (submittingRef.current) return;
 
         const trimmedHomeName = homeName.trim();
         const nextErrors = validateHomeForm({
@@ -74,21 +77,24 @@ export default function CreateHomeOnboardingScreen() {
 
         setErrors({});
         setMessage('');
+        submittingRef.current = true;
         setSubmitting(true);
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-            setSubmitting(false);
-            setMessage('Please log in to create your home.');
-            router.replace('/auth/login' as never);
-            return;
-        }
-
         try {
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage('Please log in to create your home.');
+                router.replace('/auth/login' as never);
+                return;
+            }
+            if (pendingHome && pendingHome.userId !== user.id) {
+                throw new Error('Return to the original account to finish this home setup.');
+            }
+
             const invitedName = String(
                 user.user_metadata?.full_name ||
                 user.user_metadata?.name ||
@@ -106,9 +112,10 @@ export default function CreateHomeOnboardingScreen() {
                 storyCount,
                 gateCode,
             };
+            const recovery = { pendingHome, onIdentityReady: setPendingHome };
             const propertyId = addingProperty
-                ? await createAdditionalHomeIdentity(input)
-                : await createFirstHomeIdentity(input);
+                ? await createAdditionalHomeIdentity(input, recovery)
+                : await createFirstHomeIdentity(input, recovery);
 
             if (addingProperty) {
                 await selectActiveProperty(propertyId);
@@ -119,6 +126,7 @@ export default function CreateHomeOnboardingScreen() {
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
+            submittingRef.current = false;
             setSubmitting(false);
         }
     }
@@ -157,6 +165,11 @@ export default function CreateHomeOnboardingScreen() {
 
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Home Details</Text>
+                        {!!pendingHome && (
+                            <Text selectable style={[bodyTextStyle, { color: theme.colors.mutedText, marginBottom: 14 }]}>
+                                Your home has been saved. Finish its remaining setup below; retry uses this same home. You can edit its name, address, and type later in Home Settings.
+                            </Text>
+                        )}
 
                         <ThemedInput
                             label="Home nickname or display name"
@@ -167,12 +180,12 @@ export default function CreateHomeOnboardingScreen() {
                                 clearFieldError('homeName');
                             }}
                             autoCapitalize="words"
-                            editable={!submitting}
+                            editable={!submitting && !pendingHome}
                             error={errors.homeName}
                         />
 
                         <VerifiedAddressPicker
-                            disabled={submitting}
+                            disabled={submitting || !!pendingHome}
                             onAddressConfirmed={(address) => {
                                 setVerifiedAddress(address);
                                 if (address) clearFieldError('address');
@@ -194,7 +207,7 @@ export default function CreateHomeOnboardingScreen() {
                                         key={option.value}
                                         title={option.label}
                                         variant={selected ? 'primary' : 'secondary'}
-                                        disabled={submitting}
+                                        disabled={submitting || !!pendingHome}
                                         onPress={() => {
                                             setPropertyType(option.value);
                                             clearFieldError('propertyType');
@@ -266,8 +279,8 @@ export default function CreateHomeOnboardingScreen() {
 
                         <ThemedButton
                             title={submitting
-                                ? (addingProperty ? 'Adding property...' : 'Creating home...')
-                                : (addingProperty ? 'Add Property' : 'Create Home')}
+                                ? (pendingHome ? 'Finishing home setup...' : addingProperty ? 'Adding property...' : 'Creating home...')
+                                : (pendingHome ? 'Retry Home Setup' : addingProperty ? 'Add Property' : 'Create Home')}
                             disabled={submitting || !verifiedAddress}
                             onPress={createHome}
                             style={{ marginTop: 18 }}
@@ -276,7 +289,7 @@ export default function CreateHomeOnboardingScreen() {
 
                     {!!message && (
                         <ThemedCard style={{ marginTop: 16 }}>
-                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                            <Text selectable style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
                         </ThemedCard>
                     )}
                 </View>

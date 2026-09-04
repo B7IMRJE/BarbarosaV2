@@ -32,7 +32,7 @@ import {
 } from '../../lib/estimateDraft';
 import { inferEstimateCategoryFromDraft } from '../../lib/estimateOptions';
 import { resolveEstimateOptionSession } from '../../lib/estimateSessions';
-import { isEmergencyAssignmentAwaitingTechnician } from '../../lib/emergencyAssignment';
+import { hasLegacyEmergencyCompatibility, isEmergencyAssignmentAwaitingTechnician } from '../../lib/emergencyAssignment';
 import {
     formatServiceRequestReference,
     getServiceRequestDisplayCode,
@@ -237,6 +237,7 @@ type TechScheduleSlot = {
     notes: string | null;
     tech_status_note: string | null;
     technician_acknowledged_at: string | null;
+    emergency_acceptance_compatibility?: string | null;
     technician_acknowledged_by_user_id: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;
@@ -1033,7 +1034,7 @@ export default function TechOSScreen() {
 
         const slotQuery = supabase
             .from('job_schedule_slots')
-            .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString());
@@ -1052,7 +1053,7 @@ export default function TechOSScreen() {
         const additionalResult = additionalSlotIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
+                .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
                 .eq('company_id', companyIdToLoad)
                 .in('id', additionalSlotIds)
                 .order('start_at', { ascending: true })
@@ -1736,8 +1737,11 @@ export default function TechOSScreen() {
             const resultRecord = Array.isArray(data) && data[0] && typeof data[0] === 'object'
                 ? data[0] as Record<string, unknown>
                 : {};
-            const acknowledgedAt = readStringField(resultRecord, 'technician_acknowledged_at') || new Date().toISOString();
+            const acknowledgedAt = readStringField(resultRecord, 'technician_acknowledged_at');
             const acknowledgedByUserId = readStringField(resultRecord, 'technician_acknowledged_by_user_id');
+            if (!acknowledgedAt || !acknowledgedByUserId) {
+                throw new Error('Acceptance could not be confirmed. Refresh the assignment before continuing.');
+            }
 
             setAssignedScheduleSlots((current) => current.map((slot) => (
                 slot.id === slotId
@@ -4989,7 +4993,7 @@ function TechOSAssignedJobDetail({
         );
     }
 
-    if (!isTechOSWorksiteStage(workflowStatus)) {
+    if (emergencyAcceptancePending || !isTechOSWorksiteStage(workflowStatus)) {
         return (
             <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
                 <View style={techJobDetailHeaderStyle}>
@@ -5020,6 +5024,11 @@ function TechOSAssignedJobDetail({
                     <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>
                         Current: {emergencyAcceptancePending ? 'Awaiting Your Acceptance' : formatTechWorkflowStatusText(workflowStatus)}
                     </Text>
+                    {hasLegacyEmergencyCompatibility(job.slot) && !job.slot.technician_acknowledged_at && (
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                            Earlier assignment or work activity is preserved. No technician acceptance was recorded.
+                        </Text>
+                    )}
                     {emergencyAcceptancePending && (
                         <ThemedButton
                             title={updating ? 'Accepting Emergency...' : 'Accept Emergency'}
@@ -6353,6 +6362,7 @@ function normalizeScheduleSlots(data: unknown): TechScheduleSlot[] {
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
                 technician_acknowledged_at: readStringField(record, 'technician_acknowledged_at'),
+                emergency_acceptance_compatibility: readStringField(record, 'emergency_acceptance_compatibility'),
                 technician_acknowledged_by_user_id: readStringField(record, 'technician_acknowledged_by_user_id'),
                 visit_outcome: readStringField(record, 'visit_outcome'),
                 visit_closed_at: readStringField(record, 'visit_closed_at'),

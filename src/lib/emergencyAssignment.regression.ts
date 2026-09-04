@@ -8,7 +8,7 @@ run();
 function run() {
     assignmentAloneDoesNotMeanReady();
     explicitAcceptanceUnlocksReadyState();
-    operationalLegacyStateCountsAsPriorAcceptanceEvidence();
+    persistedLegacyEvidencePreservesOperationalState();
     regularAssignmentsRemainUnchanged();
     console.log('Emergency assignment acceptance regression checks passed.');
 }
@@ -37,12 +37,13 @@ function explicitAcceptanceUnlocksReadyState() {
     assert(getEmergencyAssignmentAcceptanceLabel(request, slot).includes('Technician Accepted'), 'Accepted emergency assignments need a positive confirmation label.');
 }
 
-function operationalLegacyStateCountsAsPriorAcceptanceEvidence() {
+function persistedLegacyEvidencePreservesOperationalState() {
     const request = { priority: 'emergency' };
     const slot = {
         technician_company_user_id: 'tech-1',
         status: 'on_my_way',
         technician_acknowledged_at: null,
+        emergency_acceptance_compatibility: 'existing_lead_activity',
     };
 
     assert(!isEmergencyAssignmentAwaitingTechnician(request, slot), 'A legacy On My Way emergency must not regress into pending acceptance.');

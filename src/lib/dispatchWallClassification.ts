@@ -41,6 +41,7 @@ export type DispatchWallScheduleSlot = {
     priority: string | null;
     tech_status_note: string | null;
     technician_acknowledged_at?: string | null;
+    emergency_acceptance_compatibility?: string | null;
     technician_acknowledged_by_user_id?: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;

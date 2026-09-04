@@ -25,6 +25,8 @@ export function runDispatchWallClassificationRegressions() {
     emergencyUnassignedRequestAppearsInEmergency();
     futureAssignedEmergencyWaitsForTechnicianAcceptance();
     acceptedFutureEmergencyMovesToAssignedReady();
+    legacyActivityPreservesReadinessWithoutAcceptance();
+    unverifiedOperationalEmergencyStillRequiresAcceptance();
     futureScheduledAssignedRequestStaysOutOfLivePanels();
     futureAssignedOnMyWayMovesForward();
     futureAssignedLiveWorkMovesForward();
@@ -44,6 +46,7 @@ function storeRunStaysInProgressOnTheWall() {
     const request = createEmergencyScheduledRequest('store-run-active-job');
     const slot = createSlot({
         id: 'store-run-active-job-slot',
+        emergency_acceptance_compatibility: 'existing_lead_activity',
         service_request_id: request.id,
         status: 'on_my_way',
         tech_status_note: 'Going to the supply store.',
@@ -72,6 +75,7 @@ function returnFromStoreStaysInProgressOnTheWall() {
     const request = createEmergencyScheduledRequest('returning-active-job');
     const slot = createSlot({
         id: 'returning-active-job-slot',
+        emergency_acceptance_compatibility: 'existing_lead_activity',
         service_request_id: request.id,
         status: 'on_my_way',
         tech_status_note: null,
@@ -104,6 +108,7 @@ function legacyCustomSlotUsesNewerInProgressRequestState() {
     };
     const slot = createSlot({
         id: 'shakira-active-job-slot',
+        emergency_acceptance_compatibility: 'existing_lead_activity',
         service_request_id: request.id,
         technician_company_user_id: 'selena-tech',
         status: 'custom',
@@ -139,6 +144,25 @@ function emergencyUnassignedRequestAppearsInEmergency() {
     const item = getSingleRequestItem(sections, request.id);
 
     assert(item.sectionKey === 'emergency', 'Unassigned emergency request should appear in Emergency.');
+}
+
+function legacyActivityPreservesReadinessWithoutAcceptance() {
+    const request = createEmergencyScheduledRequest('synthetic-legacy-activity');
+    const slot = createFutureAssignedSlot(request.id, {
+        technician_acknowledged_at: null,
+        emergency_acceptance_compatibility: 'existing_lead_activity',
+    });
+    const item = getSingleRequestItem(buildDispatchWallSections([request], [slot], [], now), request.id);
+    assert(item.sectionKey === 'assigned_ready', 'Persisted compatibility should preserve legacy readiness.');
+    assert(item.slot?.technician_acknowledged_at === null, 'Compatibility must not manufacture a technician acknowledgement.');
+}
+
+function unverifiedOperationalEmergencyStillRequiresAcceptance() {
+    const request = { ...createEmergencyScheduledRequest('synthetic-unverified'), status: 'in_progress' };
+    const slot = createFutureAssignedSlot(request.id, { status: 'on_my_way', technician_acknowledged_at: null });
+    const item = getSingleRequestItem(buildDispatchWallSections([request], [slot], [], now), request.id);
+    assert(item.sectionKey === 'emergency', 'A derived operational status alone must not hide missing acceptance.');
+    assert(item.statusLabel === 'Awaiting Tech Acceptance', 'Unverified assignments need an actionable acceptance label.');
 }
 
 function futureAssignedEmergencyWaitsForTechnicianAcceptance() {
@@ -274,6 +298,7 @@ function currentDayOperationalStatesRemainUnchanged() {
         const request = createEmergencyScheduledRequest(id);
         const slot = createSlot({
             id: `${id}-slot`,
+            technician_acknowledged_at: localIso(0, 9),
             service_request_id: request.id,
             status,
             start_at: localIso(0, hour),
@@ -348,6 +373,7 @@ function olderCompletedVisitDoesNotOverrideNewerOnMyWayVisit() {
     });
     const activeSlot = createSlot({
         id: 'newer-active-slot',
+        technician_acknowledged_at: localIso(0, 10),
         service_request_id: request.id,
         status: 'on_my_way',
         start_at: localIso(0, 15),

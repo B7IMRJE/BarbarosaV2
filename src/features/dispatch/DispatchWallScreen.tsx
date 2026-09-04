@@ -1894,7 +1894,7 @@ async function loadWallScheduleSlots(
     windowStart.setDate(windowStart.getDate() - 7);
     windowEnd.setDate(windowEnd.getDate() + 14);
 
-    const selectColumns = 'id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, updated_at';
+    const selectColumns = 'id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, emergency_acceptance_compatibility, visit_outcome, visit_closed_at, updated_at';
     const windowResult = await supabase
         .from('job_schedule_slots')
         .select(selectColumns)
@@ -1989,6 +1989,7 @@ function normalizeWallScheduleSlots(data: unknown): DispatchWallScheduleSlot[] {
                 priority: readNullableString(record.priority),
                 tech_status_note: readNullableString(record.tech_status_note),
                 technician_acknowledged_at: readNullableString(record.technician_acknowledged_at),
+                emergency_acceptance_compatibility: readNullableString(record.emergency_acceptance_compatibility),
                 technician_acknowledged_by_user_id: readNullableString(record.technician_acknowledged_by_user_id),
                 visit_outcome: readNullableString(record.visit_outcome),
                 visit_closed_at: readNullableString(record.visit_closed_at),

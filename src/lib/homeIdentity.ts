@@ -5,6 +5,7 @@ import {
     createMissingStarterHomeItems,
 } from './starterHomeSetup';
 import type { ProviderHomeItemsReadContext } from './providerHomeItems';
+import { runRecoverableHomeCreation, type HomeCreationRecoveryOptions } from './home-creation-recovery';
 import {
     loadCompanyHomeStructureAccess,
     loadMyHomeStructureAccess,
@@ -183,53 +184,38 @@ export async function loadCompanyHomeIdentity(context: ProviderHomeItemsReadCont
     return mergeHomeDetails(identity, normalizeHomeProfileDetails(row), accessDetails);
 }
 
-export async function createFirstHomeIdentity(input: HomeIdentityInput) {
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
-
-    const { data, error } = await supabase.rpc('create_homeowner_first_property', buildHomeIdentityRpcPayload(input));
-
-    if (error) {
-        logHomeIdentityRpcError('Create first home identity failed', error);
-        throw new Error(`We could not create your home right now: ${error.message}`);
-    }
-
-    const row = firstRow<PropertyRpcRow>(data);
-    const propertyId = String(row?.property_id || '').trim();
-
-    if (!propertyId) {
-        throw new Error('We could not confirm your home was created. Please try again.');
-    }
-
-    await finishCreatedHomeIdentity(propertyId, input, !userError ? user?.id : null);
-
-    return propertyId;
+export async function createFirstHomeIdentity(input: HomeIdentityInput, recovery: HomeCreationRecoveryOptions = {}) {
+    return createHomeIdentity(input, 'create_homeowner_first_property', recovery);
 }
 
-export async function createAdditionalHomeIdentity(input: HomeIdentityInput) {
+export async function createAdditionalHomeIdentity(input: HomeIdentityInput, recovery: HomeCreationRecoveryOptions = {}) {
+    return createHomeIdentity(input, 'create_homeowner_property', recovery);
+}
+
+async function createHomeIdentity(
+    input: HomeIdentityInput,
+    rpcName: 'create_homeowner_first_property' | 'create_homeowner_property',
+    recovery: HomeCreationRecoveryOptions
+) {
     const {
         data: { user },
         error: userError,
     } = await supabase.auth.getUser();
-    const { data, error } = await supabase.rpc('create_homeowner_property', buildHomeIdentityRpcPayload(input));
 
-    if (error) {
-        logHomeIdentityRpcError('Create additional home identity failed', error);
-        throw new Error(`We could not add your property right now: ${error.message}`);
-    }
+    if (userError || !user) throw new Error('Please log in to finish your home setup.');
 
-    const row = firstRow<PropertyRpcRow>(data);
-    const propertyId = String(row?.property_id || '').trim();
-
-    if (!propertyId) {
-        throw new Error('We could not confirm your property was added. Please try again.');
-    }
-
-    await finishCreatedHomeIdentity(propertyId, input, !userError ? user?.id : null);
-
-    return propertyId;
+    return runRecoverableHomeCreation({
+        ...recovery,
+        userId: user.id,
+        createIdentity: async () => {
+            // Keep the existing server-side first-home / verified place-and-unit
+            // idempotency. Do not synthesize a new property ID on the client.
+            const { data, error } = await supabase.rpc(rpcName, buildHomeIdentityRpcPayload(input));
+            if (error) throw new Error('We could not confirm your home right now. Please try again.');
+            return String(firstRow<PropertyRpcRow>(data)?.property_id || '').trim();
+        },
+        finishSetup: (propertyId) => finishCreatedHomeIdentity(propertyId, input, user.id),
+    });
 }
 
 export async function updateHomeIdentity(propertyId: string, input: HomeIdentityInput) {
