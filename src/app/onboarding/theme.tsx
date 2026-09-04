@@ -20,7 +20,7 @@ export default function OnboardingThemeScreen() {
         themeName,
     } =
         useTheme();
-    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const params = useLocalSearchParams<{ next?: string | string[]; propertyId?: string | string[] }>();
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export default function OnboardingThemeScreen() {
 
     function continueSetup() {
         if (isSaving) return;
-        router.replace(buildBaseHomeWizardRoute(nextRoute) as never);
+        router.replace(buildBaseHomeWizardRoute(nextRoute, firstParam(params.propertyId)) as never);
     }
 
     return (
@@ -248,7 +248,9 @@ function resolveSafeNext(value: string | undefined) {
     return null;
 }
 
-function buildBaseHomeWizardRoute(nextRoute: string | null) {
-    if (!nextRoute) return '/onboarding/base-home-wizard';
-    return `/onboarding/base-home-wizard?next=${encodeURIComponent(nextRoute)}`;
+function buildBaseHomeWizardRoute(nextRoute: string | null, propertyId?: string) {
+    const query = new URLSearchParams();
+    if (propertyId) query.set('propertyId', propertyId);
+    if (nextRoute) query.set('next', nextRoute);
+    return `/onboarding/base-home-wizard${query.size ? `?${query}` : ''}`;
 }

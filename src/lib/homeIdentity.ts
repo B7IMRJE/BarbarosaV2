@@ -1,9 +1,5 @@
 import { supabase } from './supabase';
 import { requireActivePropertyMembership } from './activeProperty';
-import {
-    buildDefaultStarterHomePlan,
-    createMissingStarterHomeItems,
-} from './starterHomeSetup';
 import type { ProviderHomeItemsReadContext } from './providerHomeItems';
 import { runRecoverableHomeCreation, type HomeCreationRecoveryOptions } from './home-creation-recovery';
 import {
@@ -214,7 +210,7 @@ async function createHomeIdentity(
             if (error) throw new Error('We could not confirm your home right now. Please try again.');
             return String(firstRow<PropertyRpcRow>(data)?.property_id || '').trim();
         },
-        finishSetup: (propertyId) => finishCreatedHomeIdentity(propertyId, input, user.id),
+        finishSetup: (propertyId) => finishCreatedHomeIdentity(propertyId, input),
     });
 }
 
@@ -311,23 +307,15 @@ function buildHomeIdentityRpcPayload({ name, propertyType, address }: HomeIdenti
 
 async function finishCreatedHomeIdentity(
     propertyId: string,
-    input: HomeIdentityInput,
-    userId?: string | null
+    input: HomeIdentityInput
 ) {
     await updateMyHomeStructureAccess(propertyId, {
         storyCount: input.storyCount,
         gateCode: input.gateCode,
     });
 
-    if (userId) {
-        await createMissingStarterHomeItems(
-            {
-                userId,
-                propertyId,
-            },
-            buildDefaultStarterHomePlan(input.propertyType)
-        );
-    }
+    // Starter areas require an explicit choice. The database creates a durable
+    // setup checkpoint with the property, before a screen can unmount/reload.
 }
 
 function normalizeHomeIdentity(row: HomeIdentityRow): HomeIdentity {

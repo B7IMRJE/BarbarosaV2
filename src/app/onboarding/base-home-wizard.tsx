@@ -1,553 +1,162 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
+import { selectActiveProperty } from '../../lib/activeProperty';
+import { HOME_STORY_COUNT_OPTIONS } from '../../lib/homePropertyAccessValues';
 import {
-    activePropertyErrorMessage,
-    isActivePropertyResolutionError,
-    requireActivePropertyMembership,
-} from '../../lib/activeProperty';
-import {
-    type ExistingAreaItem,
-    type StarterItemCategory,
-} from '../../lib/areaTemplates';
-import { getCompleteRoomStarterItems, type CompleteRoomStarterKind } from '../../lib/roomStarterTemplates';
-import { supabase } from '../../lib/supabase';
-import {
-    buildStarterHomeSetupPreview,
-    type StarterHomeArea,
-    type StarterHomeItem,
-} from '../../lib/starterHomeSetup';
+    buildHomeSetupPlan, chooseHomeSetup, finishHomeSetup, inspectHomeSetup, isHomeSetupComplete,
+    readHomeSetup, resolveOwnedHomeSetupScope, saveHomeSetupStory,
+    type HomeSetupChoices, type HomeSetupScope, type HomeSetupStatus,
+} from '../../lib/home-setup-integrity';
 import { useTheme } from '../../theme/useTheme';
 
-type BathroomCount = '1' | '2' | '3' | '4+';
-type YesNo = 'yes' | 'no';
-type YesNoNotSure = 'yes' | 'no' | 'not_sure';
-
-type StarterArea = StarterHomeArea;
-type StarterCard = StarterHomeItem;
-
-type ExistingWizardItem = ExistingAreaItem & {
-    item_slug?: string | null;
+const initialChoices: HomeSetupChoices = {
+    bathrooms: 2, kitchen: true, laundry: true, garage: true, waterHeater: 'not_sure', hvac: 'not_sure',
+    frontYard: true, backYard: true, pool: false,
 };
-
-const bathroomOptions: BathroomCount[] = ['1', '2', '3', '4+'];
-const yesNoOptions: { value: YesNo; label: string }[] = [
-    { value: 'yes', label: 'Yes' },
-    { value: 'no', label: 'No' },
-];
-const yesNoNotSureOptions: { value: YesNoNotSure; label: string }[] = [
-    { value: 'yes', label: 'Yes' },
-    { value: 'no', label: 'No' },
-    { value: 'not_sure', label: 'Not sure' },
-];
+const questions = [
+    ['kitchen', 'Kitchen?'], ['laundry', 'Laundry?'], ['garage', 'Garage?'],
+    ['waterHeater', 'Water heater?'], ['hvac', 'HVAC?'], ['frontYard', 'Front yard?'],
+    ['backYard', 'Back yard?'], ['pool', 'Pool?'],
+] as const;
 
 export default function BaseHomeWizardScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const params = useLocalSearchParams<{ next?: string | string[] }>();
-    const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
-    const [bathrooms, setBathrooms] = useState<BathroomCount>('2');
-    const [hasKitchen, setHasKitchen] = useState<YesNo>('yes');
-    const [hasLaundry, setHasLaundry] = useState<YesNo>('yes');
-    const [hasGarage, setHasGarage] = useState<YesNo>('yes');
-    const [hasWaterHeater, setHasWaterHeater] = useState<YesNoNotSure>('not_sure');
-    const [hasHvac, setHasHvac] = useState<YesNoNotSure>('not_sure');
-    const [hasFrontYard, setHasFrontYard] = useState<YesNo>('yes');
-    const [hasBackYard, setHasBackYard] = useState<YesNo>('yes');
-    const [hasPool, setHasPool] = useState<YesNo>('no');
-    const [message, setMessage] = useState('');
+    const params = useLocalSearchParams<{ next?: string | string[]; propertyId?: string | string[] }>();
+    const paramsReady = useHydratedRouteParamsReady();
+    const propertyId = firstParam(params.propertyId);
+    const nextRoute = resolveSafeNext(firstParam(params.next));
+    const [scope, setScope] = useState<HomeSetupScope | null>(null);
+    const [status, setStatus] = useState<HomeSetupStatus | null>(null);
+    const [choices, setChoices] = useState(initialChoices);
+    const [storyCount, setStoryCount] = useState('');
+    const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [completed, setCompleted] = useState(false);
-    const openHomeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const starterAreas = useMemo(
-        () =>
-            buildStarterAreaPlan({
-                bathrooms,
-                hasKitchen,
-                hasLaundry,
-                hasGarage,
-                hasWaterHeater,
-                hasHvac,
-                hasFrontYard,
-                hasBackYard,
-                hasPool,
-            }),
-        [bathrooms, hasKitchen, hasLaundry, hasGarage, hasWaterHeater, hasHvac, hasFrontYard, hasBackYard, hasPool]
-    );
+    const [message, setMessage] = useState('');
+    const [reload, setReload] = useState(0);
+    const submitting = useRef(false);
+    const plan = useMemo(() => buildHomeSetupPlan(choices), [choices]);
+    const complete = !!status && isHomeSetupComplete(status);
 
     useEffect(() => {
-        return () => {
-            if (openHomeTimeoutRef.current) {
-                clearTimeout(openHomeTimeoutRef.current);
+        if (!paramsReady) return;
+        let current = true;
+        setLoading(true); setMessage(''); setStatus(null); setScope(null);
+        void (async () => {
+            const target = await resolveOwnedHomeSetupScope(propertyId);
+            if (!target) throw new Error('Only the home owner can finish setup.');
+            const saved = await readHomeSetup(target);
+            if (!current) return;
+            setScope(target); setStatus(saved); setStoryCount(saved.story_count || '');
+            const compact = ['CONDO', 'APARTMENT'].includes(saved.property_type);
+            setChoices({ ...initialChoices, bathrooms: compact ? 1 : 2, garage: !compact, frontYard: !compact, backYard: !compact });
+            if (saved.can_retry) {
+                const result = await inspectHomeSetup(target, reload > 0);
+                if (current) setStatus(result);
             }
-        };
-    }, []);
+        })().catch(e => { if (current) setMessage(errorMessage(e)); })
+            .finally(() => { if (current) setLoading(false); });
+        return () => { current = false; };
+    }, [propertyId, paramsReady, reload]);
 
-    async function createStarterHomeProfile() {
-        if (saving || completed) return;
-
-        setSaving(true);
-        setMessage('Creating starter home profile...');
-
-        let activeProperty;
-
+    async function save(keepCurrent = false) {
+        if (submitting.current || !scope || !status || loading) return;
+        if (status.needs_details && !storyCount) { setMessage('Choose the number of stories first.'); return; }
+        submitting.current = true; setSaving(true); setMessage('Saving this home’s setup…');
         try {
-            activeProperty = await requireActivePropertyMembership();
-        } catch (error) {
-            setSaving(false);
-            setMessage(activePropertyErrorMessage(error));
-
-            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as never);
-            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as never);
-            }
-
-            return;
-        }
-
-        const { data: existingRows, error: existingError } = await supabase
-            .from('home_items')
-            .select('name, system, category, location, parent_area, item_slug')
-            .eq('property_id', activeProperty.propertyId)
-            .or('archived.eq.false,archived.is.null');
-
-        if (existingError) {
-            setSaving(false);
-            setMessage(`Could not check existing home profile: ${existingError.message}`);
-            return;
-        }
-
-        const existingItems = (existingRows || []) as ExistingWizardItem[];
-        const preview = buildStarterHomeSetupPreview({
-            userId: activeProperty.userId,
-            propertyId: activeProperty.propertyId,
-            existingItems,
-            plan: starterAreas,
-        });
-        const rowsToInsert = preview.rowsToInsert;
-
-        if (rowsToInsert.length > 0) {
-            const { error: insertError } = await supabase.from('home_items').insert(rowsToInsert);
-
-            if (insertError) {
-                setSaving(false);
-                setMessage(`Starter profile could not be created: ${insertError.message}`);
-                return;
-            }
-        }
-
-        setSaving(false);
-        setCompleted(true);
-        setMessage(
-            rowsToInsert.length > 0
-                ? `Created ${rowsToInsert.length} starter card${rowsToInsert.length === 1 ? '' : 's'} marked Missing Information.`
-                : 'Your starter cards already exist. Nothing new was created.'
-        );
-
-        scheduleOpenHomeOS();
+            let saved = status;
+            if (saved.needs_details) saved = await saveHomeSetupStory(scope, storyCount);
+            if (saved.needs_choice) saved = await chooseHomeSetup(scope, keepCurrent ? null : plan, keepCurrent);
+            setStatus(saved);
+            if (saved.can_retry) saved = await finishHomeSetup(scope);
+            setStatus(saved);
+            setMessage(isHomeSetupComplete(saved)
+                ? `Home setup saved. ${saved.skipped_areas ? `${saved.skipped_areas} area(s) were outside this home’s enabled trades. ` : ''}Existing cards and customizations were kept.`
+                : 'Your progress is saved. Complete the remaining choices below.');
+        } catch (e) { setMessage(errorMessage(e)); }
+        finally { submitting.current = false; setSaving(false); }
     }
 
-    function openHomeOS() {
-        if (openHomeTimeoutRef.current) {
-            clearTimeout(openHomeTimeoutRef.current);
-            openHomeTimeoutRef.current = null;
-        }
-
-        router.replace((nextRoute || '/') as never);
-    }
-
-    function scheduleOpenHomeOS() {
-        if (openHomeTimeoutRef.current) {
-            clearTimeout(openHomeTimeoutRef.current);
-        }
-
-        openHomeTimeoutRef.current = setTimeout(() => {
-            openHomeTimeoutRef.current = null;
+    async function openHome() {
+        if (!scope || saving) return;
+        try {
+            const current = await resolveOwnedHomeSetupScope(scope.propertyId);
+            if (current?.userId !== scope.userId) throw new Error('Your account changed. Reopen this home.');
+            await selectActiveProperty(scope.propertyId);
             router.replace((nextRoute || '/') as never);
-        }, 1000);
+        } catch (e) { setMessage(errorMessage(e)); }
     }
 
-    return (
-        <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
-        >
-            <View style={{ width: '100%', maxWidth: 920 }}>
-                <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
-                    Set Up Your Home Profile
-                </Text>
-                <Text
-                    style={{
-                        color: theme.colors.mutedText,
-                        fontSize: scaleFont(16),
-                        lineHeight: scaleFont(22),
-                        marginTop: scaleIcon(8),
-                        marginBottom: scaleIcon(18),
-                    }}
-                >
-                    Answer a few simple questions. HomeOS will create starter cards as Missing Information so you can confirm details later.
-                </Text>
-
-                <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
-                    <QuestionBlock title="How many bathrooms?">
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
-                            {bathroomOptions.map((option) => (
-                                <ChoiceChip
-                                    key={option}
-                                    label={option}
-                                    selected={bathrooms === option}
-                                    onPress={() => setBathrooms(option)}
-                                />
-                            ))}
-                        </View>
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Kitchen?">
-                        <ChoiceRow options={yesNoOptions} value={hasKitchen} onChange={setHasKitchen} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Laundry?">
-                        <ChoiceRow options={yesNoOptions} value={hasLaundry} onChange={setHasLaundry} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Garage?">
-                        <ChoiceRow options={yesNoOptions} value={hasGarage} onChange={setHasGarage} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Water heater?">
-                        <ChoiceRow options={yesNoNotSureOptions} value={hasWaterHeater} onChange={setHasWaterHeater} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="HVAC?">
-                        <ChoiceRow options={yesNoNotSureOptions} value={hasHvac} onChange={setHasHvac} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Front yard?">
-                        <ChoiceRow options={yesNoOptions} value={hasFrontYard} onChange={setHasFrontYard} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Back yard?">
-                        <ChoiceRow options={yesNoOptions} value={hasBackYard} onChange={setHasBackYard} />
-                    </QuestionBlock>
-
-                    <QuestionBlock title="Pool?">
-                        <ChoiceRow options={yesNoOptions} value={hasPool} onChange={setHasPool} />
-                    </QuestionBlock>
-                </ThemedCard>
-
-                <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
-                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                        Starter cards to create
-                    </Text>
-                    <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
-                        These cards are not confirmed details. No photos, documents, or installed equipment confirmations will be generated.
-                    </Text>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(12) }}>
-                        {starterAreas.map((area) => (
-                            <Text
-                                key={`${area.system}-${area.name}`}
-                                style={{
-                                    backgroundColor: theme.colors.surfaceAlt,
-                                    borderColor: theme.colors.border,
-                                    borderRadius: theme.radii.pill,
-                                    borderWidth: 1,
-                                    color: theme.colors.text,
-                                    fontWeight: '900',
-                                    paddingHorizontal: scaleIcon(12),
-                                    paddingVertical: scaleIcon(8),
-                                }}
-                            >
-                                {area.name} + {area.starterItems.length} item{area.starterItems.length === 1 ? '' : 's'}
-                            </Text>
-                        ))}
+    return <ScrollView contentInsetAdjustmentBehavior="automatic"
+        style={{ flex: 1, backgroundColor: theme.colors.background }}
+        contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}>
+        <View style={{ width: '100%', maxWidth: 920, gap: scaleIcon(14) }}>
+            <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>Set Up Your Home Profile</Text>
+            <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(16) }}>
+                {status?.home_name || 'Your home'} · Answer a few questions, then choose starter cards or keep your current cards.
+                {' '}Only enabled trades are added, marked Missing Information. Existing or archived areas are never rebuilt.
+            </Text>
+            {loading ? <ActivityIndicator color={theme.colors.primary} /> : status ? <>
+                {status.needs_details ? <ThemedCard>
+                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginBottom: 10 }}>How many stories?</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {HOME_STORY_COUNT_OPTIONS.map(option => <ThemedButton key={option.value} title={option.label}
+                            variant={storyCount === option.value ? 'primary' : 'secondary'} disabled={saving}
+                            onPress={() => setStoryCount(option.value)} />)}
                     </View>
-                </ThemedCard>
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginBottom: scaleIcon(14) }}>
-                    <ThemedButton
-                        title={completed ? 'Starter Home Profile Created' : saving ? 'Creating...' : 'Create Starter Home Profile'}
-                        disabled={saving || completed}
-                        onPress={createStarterHomeProfile}
-                    />
-                    {completed && (
-                        <ThemedButton
-                            title={nextRoute ? 'Continue Invitation' : 'Open HomeOS'}
-                            variant="secondary"
-                            onPress={openHomeOS}
-                        />
-                    )}
-                    <ThemedButton
-                        title={nextRoute ? 'Skip Starter Profile For Now' : 'Skip for Now'}
-                        variant="secondary"
-                        disabled={saving}
-                        onPress={openHomeOS}
-                    />
-                </View>
-
-                {saving && (
-                    <View style={{ alignItems: 'flex-start', paddingVertical: scaleIcon(8) }}>
-                        <ActivityIndicator />
-                    </View>
-                )}
-
-                {!!message && (
+                </ThemedCard> : null}
+                {status.needs_choice ? <>
+                    {status.starter_state === 'legacy_review' ? <Text selectable style={{ color: theme.colors.mutedText }}>
+                        This older home has no recorded starter choice. If you intentionally kept it empty or removed its cards, choose “Keep current cards” below.
+                    </Text> : null}
                     <ThemedCard>
-                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', lineHeight: scaleFont(20) }}>
-                            {message}
-                        </Text>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginBottom: 10 }}>How many bathrooms?</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+                            {[0, 1, 2, 3, 4].map(value => <ThemedButton key={value} title={value === 4 ? '4+' : String(value)}
+                                variant={choices.bathrooms === value ? 'primary' : 'secondary'} disabled={saving}
+                                onPress={() => setChoices(c => ({ ...c, bathrooms: value }))} />)}
+                        </View>
+                        {questions.map(([key, title]) => <View key={key} style={{ marginBottom: 18 }}>
+                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginBottom: 10 }}>{title}</Text>
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                                {(key === 'waterHeater' || key === 'hvac' ? [true, false, 'not_sure'] as const : [true, false] as const)
+                                    .map(value => <ThemedButton key={String(value)} title={value === 'not_sure' ? 'Not sure' : value ? 'Yes' : 'No'} disabled={saving}
+                                    variant={choices[key] === value ? 'primary' : 'secondary'}
+                                    onPress={() => setChoices(c => ({ ...c, [key]: value }))} />)}
+                            </View>
+                        </View>)}
                     </ThemedCard>
-                )}
-            </View>
-        </ScrollView>
-    );
+                    <ThemedCard>
+                        <Text style={{ color: theme.colors.text, fontWeight: '900' }}>Selected starter areas</Text>
+                        {plan.map(area => <Text key={area.name} style={{ color: theme.colors.mutedText, marginTop: 6 }}>{area.name}</Text>)}
+                        <Text style={{ color: theme.colors.mutedText, marginTop: 10 }}>Available published packs determine the final cards; disabled trades are not added.</Text>
+                    </ThemedCard>
+                </> : null}
+                {!complete ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    <ThemedButton title={saving ? 'Saving…' : status.needs_choice ? 'Create Starter Home Profile' : 'Finish saved setup'}
+                        disabled={saving || (status.needs_choice && !plan.length)} onPress={() => void save()} />
+                    {status.needs_choice ? <ThemedButton title="Keep current cards — no starter pack" variant="secondary"
+                        disabled={saving} onPress={() => void save(true)} /> : null}
+                </View> : null}
+                <ThemedButton title={complete ? nextRoute ? 'Continue Invitation' : 'Open HomeOS' : 'Finish later'}
+                    variant="secondary" disabled={saving} onPress={() => void openHome()} />
+            </> : null}
+            {!!message ? <ThemedCard><Text selectable accessibilityLiveRegion="polite" style={{ color: theme.colors.text }}>{message}</Text></ThemedCard> : null}
+            {!loading && message && !complete ? <ThemedButton title="Retry setup check" disabled={saving} variant="secondary" onPress={() => setReload(n => n + 1)} /> : null}
+        </View>
+    </ScrollView>;
 }
 
-function firstParam(value: string | string[] | undefined) {
-    return Array.isArray(value) ? value[0] : value;
-}
-
-function resolveSafeNext(value: string | undefined) {
+function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Could not finish setup. Your home is saved; please retry.'; }
+function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] : value; }
+function resolveSafeNext(value?: string) {
     if (!value) return null;
-
     try {
         const parsed = new URL(value, 'https://app.local');
-
-        if (parsed.pathname === '/customer-invite' && parsed.searchParams.get('code')?.trim()) {
-            return `${parsed.pathname}${parsed.search}`;
-        }
-    } catch {
-        return null;
-    }
-
+        if (parsed.pathname === '/customer-invite' && parsed.searchParams.get('code')?.trim()) return `${parsed.pathname}${parsed.search}`;
+    } catch { /* Use the home destination. */ }
     return null;
-}
-
-function QuestionBlock({ title, children }: { title: string; children: React.ReactNode }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
-
-    return (
-        <View style={{ marginBottom: scaleIcon(18) }}>
-            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginBottom: scaleIcon(10) }}>
-                {title}
-            </Text>
-            {children}
-        </View>
-    );
-}
-
-function ChoiceRow<TValue extends string>({
-    options,
-    value,
-    onChange,
-}: {
-    options: { value: TValue; label: string }[];
-    value: TValue;
-    onChange: (value: TValue) => void;
-}) {
-    const { scaleIcon } = useTheme();
-
-    return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
-            {options.map((option) => (
-                <ChoiceChip
-                    key={option.value}
-                    label={option.label}
-                    selected={value === option.value}
-                    onPress={() => onChange(option.value)}
-                />
-            ))}
-        </View>
-    );
-}
-
-function ChoiceChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
-
-    return (
-        <TouchableOpacity
-            activeOpacity={0.82}
-            onPress={onPress}
-            style={{
-                backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
-                borderColor: selected ? theme.colors.primary : theme.colors.border,
-                borderRadius: theme.radii.pill,
-                borderWidth: 1,
-                minWidth: scaleIcon(74),
-                paddingHorizontal: scaleIcon(14),
-                paddingVertical: scaleIcon(10),
-            }}
-        >
-            <Text
-                style={{
-                    color: selected ? theme.colors.primaryText : theme.colors.text,
-                    fontSize: scaleFont(15),
-                    fontWeight: '900',
-                    textAlign: 'center',
-                }}
-            >
-                {label}
-            </Text>
-        </TouchableOpacity>
-    );
-}
-
-function buildStarterAreaPlan({
-    bathrooms,
-    hasKitchen,
-    hasLaundry,
-    hasGarage,
-    hasWaterHeater,
-    hasHvac,
-    hasFrontYard,
-    hasBackYard,
-    hasPool,
-}: {
-    bathrooms: BathroomCount;
-    hasKitchen: YesNo;
-    hasLaundry: YesNo;
-    hasGarage: YesNo;
-    hasWaterHeater: YesNoNotSure;
-    hasHvac: YesNoNotSure;
-    hasFrontYard: YesNo;
-    hasBackYard: YesNo;
-    hasPool: YesNo;
-}) {
-    const areas: StarterArea[] = [];
-
-    if (hasKitchen === 'yes') areas.push(area('Kitchen', 'Plumbing', kitchenStarterCards()));
-
-    for (let index = 1; index <= bathroomCountToNumber(bathrooms); index += 1) {
-        areas.push(area(index === 1 ? 'Bathroom 1' : `Bathroom ${index}`, 'Plumbing', bathroomStarterCards()));
-    }
-
-    if (hasLaundry === 'yes') areas.push(area('Laundry', 'Plumbing', laundryStarterCards()));
-    if (hasGarage === 'yes') areas.push(area('Garage', 'Plumbing', garageMechanicalStarterCards(hasWaterHeater)));
-
-    if (hasWaterHeater !== 'no' || hasHvac !== 'no') {
-        areas.push(area('Mechanical Area', hasHvac !== 'no' ? 'HVAC' : 'Plumbing', mechanicalStarterCards(hasWaterHeater, hasHvac)));
-    }
-
-    if (hasFrontYard === 'yes') areas.push(area('Front Yard', 'Exterior', exteriorStarterCards('front')));
-    if (hasBackYard === 'yes') areas.push(area('Back Yard', 'Exterior', exteriorStarterCards('back')));
-    if (hasPool === 'yes') areas.push(area('Pool Area', 'Pool', poolStarterCards()));
-
-    return areas;
-}
-
-function bathroomCountToNumber(value: BathroomCount) {
-    if (value === '4+') return 4;
-    return Number(value);
-}
-
-function area(name: string, system: string, starterItems: StarterCard[]): StarterArea {
-    return { name, system, starterItems };
-}
-
-function starterItem(
-    name: string,
-    system: string,
-    category: StarterItemCategory,
-    aliases: string[] = [],
-    parentName?: string,
-    parentAliases: string[] = [],
-): StarterCard {
-    return { name, system, category, aliases, parentName, parentAliases };
-}
-
-function kitchenStarterCards(): StarterCard[] {
-    return [
-        ...completeRoomStarterCards('kitchen'),
-        starterItem('Stove / Range', 'Appliances', 'Equipment'),
-        starterItem('Kitchen GFCI / Outlets', 'Electrical', 'Fixture'),
-    ];
-}
-
-function bathroomStarterCards(): StarterCard[] {
-    return [
-        ...completeRoomStarterCards('bathroom'),
-        starterItem('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
-        starterItem('Bathroom Lights', 'Electrical', 'Fixture'),
-        starterItem('Lighted Mirror', 'Electrical', 'Fixture'),
-    ];
-}
-
-function laundryStarterCards(): StarterCard[] {
-    return [
-        starterItem('Washer Valves', 'Plumbing', 'Fixture'),
-        starterItem('Washer Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Dryer Vent', 'Appliances', 'Component'),
-        starterItem('Laundry Sink', 'Plumbing', 'Fixture'),
-    ];
-}
-
-function garageMechanicalStarterCards(hasWaterHeater: YesNoNotSure): StarterCard[] {
-    const completeGarageCards = completeRoomStarterCards('garage').filter((starterCard) => (
-        hasWaterHeater !== 'no' || (starterCard.name !== 'Water Heater' && starterCard.parentName !== 'Water Heater')
-    ));
-
-    return [
-        ...completeGarageCards,
-        starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
-        starterItem('Utility Sink', 'Plumbing', 'Fixture'),
-    ];
-}
-
-function completeRoomStarterCards(kind: CompleteRoomStarterKind): StarterCard[] {
-    return getCompleteRoomStarterItems(kind).map((starterDefinition) => starterItem(
-        starterDefinition.name,
-        starterDefinition.system,
-        starterDefinition.category,
-        [...(starterDefinition.aliases || [])],
-        starterDefinition.parentName,
-        [...(starterDefinition.parentAliases || [])],
-    ));
-}
-
-function mechanicalStarterCards(hasWaterHeater: YesNoNotSure, hasHvac: YesNoNotSure): StarterCard[] {
-    const cards: StarterCard[] = [];
-
-    if (hasWaterHeater !== 'no') {
-        cards.push(
-            starterItem('Water Heater', 'Plumbing', 'Equipment'),
-            starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
-            starterItem('T&P Valve', 'Plumbing', 'Component'),
-            starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
-            starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
-            starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment')
-        );
-    }
-
-    if (hasHvac !== 'no') {
-        cards.push(
-            starterItem('HVAC System', 'HVAC', 'Equipment'),
-            starterItem('Air Filter', 'HVAC', 'Component'),
-            starterItem('Condensate Drain', 'HVAC', 'Component'),
-            starterItem('Safety Switch / Float Switch', 'HVAC', 'Component'),
-            starterItem('Coil / Air Handler', 'HVAC', 'Equipment')
-        );
-    }
-
-    return cards;
-}
-
-function exteriorStarterCards(yard: 'front' | 'back'): StarterCard[] {
-    const yardLabel = yard === 'front' ? 'Front Yard' : 'Back Yard';
-
-    return [
-        starterItem(`${yardLabel} Hose Bibbs`, 'Exterior', 'Fixture'),
-        starterItem(`${yardLabel} Main Cleanout`, 'Exterior', 'Fixture'),
-        starterItem(`Irrigation ${yardLabel}`, 'Exterior', 'Equipment'),
-    ];
-}
-
-function poolStarterCards(): StarterCard[] {
-    return [
-        starterItem('Pool Equipment', 'Pool', 'Equipment'),
-        starterItem('Pool Pump', 'Pool', 'Equipment'),
-        starterItem('Pool Filter', 'Pool', 'Equipment'),
-    ];
 }

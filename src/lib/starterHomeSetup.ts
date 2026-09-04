@@ -228,37 +228,6 @@ export function buildStarterHomeSetupPreview({
     };
 }
 
-export async function createMissingStarterHomeItems(
-    scope: StarterHomeSetupScope,
-    plan: StarterHomeArea[]
-): Promise<StarterHomeSetupPlanResult> {
-    const { supabase } = await import('./supabase');
-    const { data, error } = await supabase
-        .from('home_items')
-        .select('name, system, category, location, parent_area, item_slug, archived')
-        .eq('property_id', scope.propertyId);
-
-    if (error) {
-        throw new Error(`Could not check starter equipment: ${error.message}`);
-    }
-
-    const preview = buildStarterHomeSetupPreview({
-        ...scope,
-        existingItems: (data || []) as ExistingStarterHomeItem[],
-        plan,
-    });
-
-    if (preview.rowsToInsert.length === 0) return preview;
-
-    const { error: insertError } = await supabase.from('home_items').insert(preview.rowsToInsert);
-
-    if (insertError) {
-        throw new Error(`Starter equipment could not be created: ${insertError.message}`);
-    }
-
-    return preview;
-}
-
 export function starterPlanContainsArea(plan: StarterHomeArea[], areaName: string, parentArea = '') {
     return plan.some((area) =>
         sameIdentity(area.name, areaName) &&

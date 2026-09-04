@@ -2,6 +2,8 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import HomeSetupCheck from '../../components/homeos/home-setup-check';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import { MainDestinationCard } from '../../components/homeos/HomeOSVisualFoundation';
 import ThemedButton from '../../components/theme/ThemedButton';
 import {
@@ -17,6 +19,7 @@ import { useTheme } from '../../theme/useTheme';
 
 /** Property-area chooser. Area decks stay hidden until the homeowner selects a scope. */
 export default function MyHomeScreen() {
+    const routeParamsReady = useHydratedRouteParamsReady();
     const routeParams = useLocalSearchParams<{
         providerMode?: string | string[];
         companyId?: string | string[];
@@ -96,6 +99,7 @@ export default function MyHomeScreen() {
         >
             <View style={{ width: '100%', maxWidth: 960, gap: foundation.spacing.regular }}>
                 <HomeHeader />
+                {routeParamsReady && !providerModeContext && !routeParams.providerMode ? <HomeSetupCheck /> : null}
                 <ThemedButton
                     title={providerModeContext
                         ? `‹ ${getProviderReturnActionLabel(providerReturnTo)}`

@@ -27,6 +27,7 @@ import {
 import { syncMyProfile } from '../../lib/profileSync';
 import { type PendingHomeSetup } from '../../lib/home-creation-recovery';
 import { selectActiveProperty } from '../../lib/activeProperty';
+import { homeSetupRoute } from '../../lib/home-setup-integrity-core';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -117,12 +118,8 @@ export default function CreateHomeOnboardingScreen() {
                 ? await createAdditionalHomeIdentity(input, recovery)
                 : await createFirstHomeIdentity(input, recovery);
 
-            if (addingProperty) {
-                await selectActiveProperty(propertyId);
-                router.replace('/' as never);
-            } else {
-                router.replace(buildThemeRoute(nextRoute) as never);
-            }
+            await selectActiveProperty(propertyId);
+            router.replace((addingProperty ? homeSetupRoute(propertyId) : buildThemeRoute(nextRoute, propertyId)) as never);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
@@ -328,10 +325,8 @@ function resolveSafeNext(value: string | undefined) {
     return null;
 }
 
-function buildThemeRoute(nextRoute: string | null) {
-    if (!nextRoute) return '/onboarding/theme';
-
-    return `/onboarding/theme?next=${encodeURIComponent(nextRoute)}`;
+function buildThemeRoute(nextRoute: string | null, propertyId: string) {
+    return `/onboarding/theme?propertyId=${encodeURIComponent(propertyId)}${nextRoute ? `&next=${encodeURIComponent(nextRoute)}` : ''}`;
 }
 
 function validateHomeForm({

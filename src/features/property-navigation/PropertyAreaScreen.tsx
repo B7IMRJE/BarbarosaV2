@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import HomeSetupCheck from '../../components/homeos/home-setup-check';
 import { AreaContainer } from '../../components/homeos/HomeOSVisualFoundation';
 import ThemedButton from '../../components/theme/ThemedButton';
 import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
@@ -207,6 +208,7 @@ export default function PropertyAreaScreen() {
         >
             <View style={{ width: '100%', maxWidth: 960, gap: foundation.spacing.regular }}>
                 <HomeHeader />
+                {routeParamsReady && !providerModeContext && !routeParams.providerMode ? <HomeSetupCheck onRecovered={load} /> : null}
                 {scope !== 'unclassified' ? (
                     <ThemedButton
                         title="‹ Back to My Home"

@@ -3,6 +3,8 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import PendingCustomerInvitesCard from '../components/PendingCustomerInvitesCard';
+import HomeSetupCheck from '../components/homeos/home-setup-check';
+import { useHydratedRouteParamsReady } from '../hooks/useHydratedRouteParamsReady';
 import HomeDashboardView, {
   type DashboardSystemTile,
   type HomeDashboardItem,
@@ -216,6 +218,7 @@ export function HomeServicesScreen({
   const [maintenanceReminders, setMaintenanceReminders] = useState<HomeDashboardMaintenanceReminder[]>([]);
   const [maintenanceReminderMessage, setMaintenanceReminderMessage] = useState('');
   const [activePropertyId, setActivePropertyId] = useState('');
+  const setupRouteParamsReady = useHydratedRouteParamsReady();
   const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
   const [availableProviders, setAvailableProviders] = useState<PreferredProvider[]>([]);
   const [providerSelectionCompanyId, setProviderSelectionCompanyId] = useState('');
@@ -896,6 +899,9 @@ export function HomeServicesScreen({
       }}
     >
       <View style={{ width: '100%', maxWidth: 1120 }}>
+        {setupRouteParamsReady && !providerModeContext && !routeParams.providerMode && activePropertyId ? (
+          <HomeSetupCheck propertyId={activePropertyId} onRecovered={loadHomeHealthData} />
+        ) : null}
         <View
           style={{
             alignItems: 'flex-end',
