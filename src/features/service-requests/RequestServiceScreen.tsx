@@ -32,15 +32,23 @@ import {
     type ServiceRequestMediaDraft,
 } from '@/lib/serviceRequestMedia';
 import {
+    createServiceRequestPhoneHandoff,
+    finishServiceRequestPhoneHandoff,
+    loadPhoneHandoffMediaAsDrafts,
+    type ServiceRequestPhoneHandoff,
+} from '@/lib/serviceRequestPhoneHandoff';
+import {
     broadcastServiceRequestRefresh,
     companyServiceRequestTopic,
 } from '@/lib/serviceRequestRealtime';
 import { supabase } from '@/lib/supabase';
 import { getHomeOSVisualFoundation } from '@/theme/homeos-visual-foundation';
 import { useTheme } from '@/theme/useTheme';
+import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 type SelectionStep = 'property' | 'scope' | 'area' | 'item' | 'details';
 type AreaScope = 'interior' | 'exterior';
@@ -100,6 +108,8 @@ export default function RequestServiceScreen() {
     const [issue, setIssue] = useState('');
     const [accessInstructions, setAccessInstructions] = useState('');
     const [media, setMedia] = useState<ServiceRequestMediaDraft[]>([]);
+    const [phoneHandoff, setPhoneHandoff] = useState<ServiceRequestPhoneHandoff | null>(null);
+    const [startingPhoneHandoff, setStartingPhoneHandoff] = useState(false);
     const [loading, setLoading] = useState(true);
     const [openingPropertyId, setOpeningPropertyId] = useState('');
     const [sending, setSending] = useState(false);
@@ -152,6 +162,29 @@ export default function RequestServiceScreen() {
     }, [items, selectedArea]);
 
     const itemInformation = useMemo(() => equipmentInformation(selectedItem), [selectedItem]);
+    const phoneHandoffUrl = useMemo(() => phoneHandoff
+        ? buildPhoneHandoffUrl(phoneHandoff)
+        : '', [phoneHandoff]);
+
+    useEffect(() => {
+        if (!phoneHandoff) return;
+        let current = true;
+        async function refresh() {
+            try {
+                const phoneItems = await loadPhoneHandoffMediaAsDrafts(phoneHandoff!);
+                if (!current) return;
+                setMedia((existing) => [
+                    ...existing.filter((item) => !item.localId.startsWith('phone-')),
+                    ...phoneItems,
+                ]);
+            } catch (error) {
+                if (current) setMessage(error instanceof Error ? error.message : 'Phone media could not be refreshed.');
+            }
+        }
+        void refresh();
+        const interval = setInterval(() => void refresh(), 2500);
+        return () => { current = false; clearInterval(interval); };
+    }, [phoneHandoff]);
 
     async function openProperty(property: HomePropertySummary, directItemId = '', current = true) {
         if (openingPropertyId) return;
@@ -236,6 +269,20 @@ export default function RequestServiceScreen() {
         router.back();
     }
 
+    async function startPhoneHandoff() {
+        if (!propertyId || startingPhoneHandoff) return;
+        setStartingPhoneHandoff(true);
+        setMessage('');
+        try {
+            const context = [selectedProperty?.name, selectedArea?.name, selectedItem?.name].filter(Boolean).join(' › ') || 'Service request';
+            setPhoneHandoff(await createServiceRequestPhoneHandoff(propertyId, context));
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Could not start phone photo capture.');
+        } finally {
+            setStartingPhoneHandoff(false);
+        }
+    }
+
     async function send() {
         const summary = issue.trim();
         if (!provider || !propertyId) return setMessage('Choose a service provider before sending a request.');
@@ -270,6 +317,10 @@ export default function RequestServiceScreen() {
                         item.localId === localId ? { ...item, ...updates } : item
                     ))),
                 });
+            }
+            if (phoneHandoff) {
+                await finishServiceRequestPhoneHandoff(phoneHandoff, media);
+                setPhoneHandoff(null);
             }
             void broadcastServiceRequestRefresh(companyServiceRequestTopic(request.companyId), {
                 reason: 'homeowner_request_created',
@@ -452,6 +503,30 @@ export default function RequestServiceScreen() {
                             style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radii.card, padding: 12, color: theme.colors.text }}
                         />
                         <ServiceRequestMediaPicker items={media} disabled={sending} onChange={setMedia} onMessage={setMessage} />
+                        <ThemedCard style={{ gap: foundation.spacing.compact, backgroundColor: theme.colors.surfaceAlt }}>
+                            <Text style={foundation.typography.containerTitle}>Using another device?</Text>
+                            <Text style={foundation.typography.body}>Take photos on your phone and they will appear here automatically. No app download is required.</Text>
+                            {!phoneHandoff ? (
+                                <ThemedButton
+                                    title={startingPhoneHandoff ? 'Starting...' : 'Use my phone'}
+                                    variant="secondary"
+                                    disabled={sending || startingPhoneHandoff}
+                                    onPress={() => void startPhoneHandoff()}
+                                    style={{ alignSelf: 'flex-start' }}
+                                />
+                            ) : (
+                                <View style={{ flexDirection: viewportWidth < 620 ? 'column' : 'row', gap: foundation.spacing.regular, alignItems: 'center' }}>
+                                    <View style={{ padding: scaleIcon(12), backgroundColor: '#FFFFFF', borderRadius: theme.radii.card }}>
+                                        <QRCode value={phoneHandoffUrl} size={Math.min(scaleIcon(184), 184)} backgroundColor="#FFFFFF" color="#071E33" />
+                                    </View>
+                                    <View style={{ flex: 1, gap: foundation.spacing.compact }}>
+                                        <Text style={foundation.typography.body}>Scan this code with your phone camera. This private link expires in 15 minutes.</Text>
+                                        <ThemedButton title="Open phone page on this device" variant="secondary" onPress={() => void Linking.openURL(phoneHandoffUrl)} />
+                                        <ThemedButton title="Start a new phone link" variant="secondary" onPress={() => void startPhoneHandoff()} />
+                                    </View>
+                                </View>
+                            )}
+                        </ThemedCard>
                         <ThemedButton
                             title={sending ? 'Sending...' : requestType === 'emergency' ? 'Request Emergency Service' : 'Request Service'}
                             disabled={sending || !provider || hasUnresolvedServiceRequestMedia(media)}
@@ -514,4 +589,11 @@ function firstParam(value?: string | string[]) {
 
 function titleCase(value: string) {
     return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function buildPhoneHandoffUrl(handoff: ServiceRequestPhoneHandoff) {
+    const path = `/request-service-phone?id=${encodeURIComponent(handoff.id)}&token=${encodeURIComponent(handoff.token)}`;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') return `${window.location.origin}${path}`;
+    const publicAppUrl = String(process.env.EXPO_PUBLIC_APP_URL || 'https://barbarosa-v2.vercel.app').replace(/\/+$/, '');
+    return `${publicAppUrl}${path}`;
 }
