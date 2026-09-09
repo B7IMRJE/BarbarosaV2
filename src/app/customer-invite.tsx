@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -13,6 +13,9 @@ import {
     isExpiredCustomerInvite,
     normalizeCustomerInviteStatus,
 } from '../lib/customerInviteStatus';
+import { useHydratedRouteParamsReady } from '../hooks/useHydratedRouteParamsReady';
+import { connectCustomerInvitationToHome } from '../lib/customerInvitationConnection';
+import { selectActiveProperty } from '../lib/activeProperty';
 import { resolveLoggedInUserRoute } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -46,20 +49,13 @@ type SessionUser = {
     email?: string | null;
 };
 
-type AcceptedCustomerInvite = {
-    invitation_id?: string | null;
-    company_id?: string | null;
-    property_id?: string | null;
-    company_property_client_id?: string | null;
-    property_connection_id?: string | null;
-    status?: string | null;
-};
-
 const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 
 export default function CustomerInviteScreen() {
     const { theme } = useTheme();
     const params = useLocalSearchParams<{ code?: string | string[] }>();
+    const paramsReady = useHydratedRouteParamsReady();
+    const connecting = useRef(false);
     const inviteCode = useMemo(() => firstParam(params.code).trim(), [params.code]);
     const [user, setUser] = useState<SessionUser | null>(null);
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
@@ -82,8 +78,8 @@ export default function CustomerInviteScreen() {
         : '';
 
     useEffect(() => {
-        void loadInviteEvent();
-    }, [inviteCode]);
+        if (paramsReady) void loadInviteEvent();
+    }, [inviteCode, paramsReady]);
 
     useEffect(() => {
         if (emailMismatch && selectedHomeId) {
@@ -174,7 +170,13 @@ export default function CustomerInviteScreen() {
         }
 
         if (currentUser) {
-            await loadHomes(currentUser.id);
+            const availableHomes = await loadHomes(currentUser.id);
+            if (availableHomes?.length === 0) {
+                router.replace(`/onboarding/create-home?next=${encodeURIComponent(nextPath)}` as never);
+            } else if (availableHomes?.length === 1) {
+                setSelectedHomeId(availableHomes[0].id);
+                await connectHome(availableHomes[0].id, currentUser, loadedInvite);
+            }
         }
 
         setLoading(false);
@@ -189,7 +191,7 @@ export default function CustomerInviteScreen() {
 
         if (membershipError) {
             setMessage(`Invite loaded, but your HomeOS homes could not be loaded: ${membershipError.message}`);
-            return;
+            return null;
         }
 
         const propertyIds = Array.from(
@@ -198,7 +200,7 @@ export default function CustomerInviteScreen() {
 
         if (propertyIds.length === 0) {
             setHomes([]);
-            return;
+            return [];
         }
 
         const { data, error } = await supabase
@@ -208,11 +210,12 @@ export default function CustomerInviteScreen() {
 
         if (error) {
             setMessage(`Invite loaded, but home details could not be loaded: ${error.message}`);
-            return;
+            return null;
         }
 
         const loadedHomes = (data || []) as HomeOption[];
         setHomes(loadedHomes);
+        return loadedHomes;
     }
 
     async function switchAccount() {
@@ -257,69 +260,40 @@ export default function CustomerInviteScreen() {
         router.replace(loginRoute);
     }
 
-    async function acceptInvite() {
-        if (!inviteCode || accepting) return;
-
-        if (!user) {
-            setMessage('Sign in or create an account to continue this company invitation.');
-            return;
-        }
-
-        if (emailMismatch) {
-            await continueWithInvitedEmail(invite?.invited_email, false);
-            return;
-        }
-
-        if (!selectedHomeId) {
-            setMessage('Choose or create a HomeOS home before connecting with this service company.');
-            return;
-        }
-
-        if (normalizeStatus(invite?.status) !== 'pending') {
-            setMessage(statusMessage(invite?.status, invite?.expires_at));
-            return;
-        }
-
+    async function connectHome(homeId: string, signedInUser: SessionUser, currentInvite: CustomerInvite) {
+        if (!inviteCode || !homeId || connecting.current) return;
+        if (isWrongSignedInEmail(signedInUser.email, currentInvite.invited_email)) return;
+        connecting.current = true;
         setAccepting(true);
-        setMessage('Connecting your home...');
+        setMessage('Connecting your home to the company that invited you...');
+        try {
+            const connection = await connectCustomerInvitationToHome(nextPath, homeId);
+            await selectActiveProperty(connection.propertyId);
 
-        const { data, error } = await supabase.rpc('accept_customer_invite_by_code', {
-            p_invite_code: inviteCode,
-            p_property_id: selectedHomeId,
-        });
-
-        setAccepting(false);
-
-        if (error) {
-            setMessage(`Could not accept company invitation: ${formatHomeownerInviteError(formatMissingBackendError(error.message))}`);
-            return;
-        }
-
-        const acceptedInvite = firstRow<AcceptedCustomerInvite>(data);
-
-        if (!acceptedInvite?.company_id || !acceptedInvite.property_id) {
-            setMessage('Company invitation accepted, but HomeOS could not confirm the active provider link. Refresh HomeOS and try again.');
-            return;
-        }
-
-        if (invite?.invited_phone) {
-            const { data: existingProfile } = await supabase
-                .from('profiles')
-                .select('phone')
-                .eq('id', user.id)
-                .maybeSingle();
-            if (!String(existingProfile?.phone || '').trim()) {
-                await supabase
+            if (currentInvite.invited_phone) {
+                const { data: existingProfile } = await supabase
                     .from('profiles')
-                    .update({ phone: invite.invited_phone })
-                    .eq('id', user.id);
+                    .select('phone')
+                    .eq('id', signedInUser.id)
+                    .maybeSingle();
+                if (!String(existingProfile?.phone || '').trim()) {
+                    await supabase
+                        .from('profiles')
+                        .update({ phone: currentInvite.invited_phone })
+                        .eq('id', signedInUser.id);
+                }
             }
-        }
 
-        clearPendingCompanyInviteState({ inviteCode });
-        setSuccess(true);
-        setMessage(`Your home is now connected with ${invite?.company_name || 'the service company'}. Opening HomeOS...`);
-        setTimeout(() => router.replace('/' as never), 900);
+            clearPendingCompanyInviteState({ inviteCode });
+            setSuccess(true);
+            setMessage(`Your home is now connected with ${currentInvite.company_name || 'the service company'}. Opening HomeOS...`);
+            setTimeout(() => router.replace('/' as never), 900);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Could not connect the inviting company. Please retry.');
+        } finally {
+            connecting.current = false;
+            setAccepting(false);
+        }
     }
 
     function goToLogin() {
@@ -472,9 +446,12 @@ export default function CustomerInviteScreen() {
                                             {homes.map((home) => (
                                                 <Pressable
                                                     key={home.id}
-                                                    disabled={emailMismatch}
+                                                    disabled={emailMismatch || accepting}
                                                     onPress={() => {
-                                                        if (!emailMismatch) setSelectedHomeId(home.id);
+                                                        if (!emailMismatch && user && invite) {
+                                                            setSelectedHomeId(home.id);
+                                                            void connectHome(home.id, user, invite);
+                                                        }
                                                     }}
                                                     style={{
                                                         backgroundColor: theme.colors.background,
@@ -496,18 +473,17 @@ export default function CustomerInviteScreen() {
                                                             ? 'Switch accounts to select a home'
                                                             : selectedHomeId === home.id
                                                                 ? 'Selected'
-                                                                : 'Tap to select this home'}
+                                                                : 'Connect this home'}
                                                     </Text>
                                                 </Pressable>
                                             ))}
                                         </View>
                                     )}
-                                    <ThemedButton
-                                        title={accepting ? 'Connecting...' : invite?.company_name ? `Connect with ${invite.company_name}` : 'Accept Company Invitation'}
-                                        onPress={acceptInvite}
-                                        disabled={accepting || emailMismatch || !selectedHomeId || normalizeStatus(invite?.status) !== 'pending'}
-                                        style={{ marginTop: 14 }}
-                                    />
+                                    {accepting ? (
+                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Connecting your invited company...</Text>
+                                    ) : selectedHomeId && user && invite ? (
+                                        <ThemedButton title="Retry Company Connection" onPress={() => void connectHome(selectedHomeId, user, invite)} disabled={emailMismatch} />
+                                    ) : null}
                                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 12 }]}>
                                         This connects only basic home/customer information. Photos, documents, and private HomeOS history are not shared here.
                                     </Text>

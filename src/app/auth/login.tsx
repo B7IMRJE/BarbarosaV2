@@ -249,6 +249,8 @@ export default function LoginScreen() {
                 return;
             }
 
+            // Preserve the invitation before sign-in triggers onboarding navigation.
+            replacePendingCompanyInviteFromNextPath(result.next || null);
             const { error: sessionError } = await supabase.auth.setSession({
                 access_token: result.access_token,
                 refresh_token: result.refresh_token,

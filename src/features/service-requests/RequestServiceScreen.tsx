@@ -46,7 +46,7 @@ import { getHomeOSVisualFoundation } from '@/theme/homeos-visual-foundation';
 import { useTheme } from '@/theme/useTheme';
 import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -99,6 +99,8 @@ export default function RequestServiceScreen() {
     const [selectedProperty, setSelectedProperty] = useState<HomePropertySummary | null>(null);
     const [propertyId, setPropertyId] = useState('');
     const [provider, setProvider] = useState<PreferredProvider | null>(null);
+    const [refreshingProvider, setRefreshingProvider] = useState(false);
+    const providerRefreshVersion = useRef(0);
     const [items, setItems] = useState<RequestHomeItem[]>([]);
     const [scope, setScope] = useState<AreaScope | null>(null);
     const [selectedArea, setSelectedArea] = useState<RequestHomeItem | null>(null);
@@ -188,6 +190,8 @@ export default function RequestServiceScreen() {
 
     async function openProperty(property: HomePropertySummary, directItemId = '', current = true) {
         if (openingPropertyId) return;
+        providerRefreshVersion.current += 1;
+        setRefreshingProvider(false);
         setOpeningPropertyId(property.propertyId);
         setMessage('');
 
@@ -331,6 +335,24 @@ export default function RequestServiceScreen() {
             setMessage(error instanceof Error ? `Could not send service request: ${error.message}` : 'Could not send service request.');
         } finally {
             setSending(false);
+        }
+    }
+
+    async function refreshProvider() {
+        if (!propertyId || refreshingProvider) return;
+        const version = ++providerRefreshVersion.current;
+        setRefreshingProvider(true);
+        try {
+            const connectedProvider = await loadPreferredProviderForProperty(propertyId);
+            if (version !== providerRefreshVersion.current) return;
+            setProvider(connectedProvider);
+            setMessage(connectedProvider
+                ? `Your request will be sent to ${connectedProvider.companyName}.`
+                : 'The inviting company is not connected to this home yet. Finish the company invitation, then refresh the provider here. Your description and photos will stay on this form.');
+        } catch (error) {
+            if (version === providerRefreshVersion.current) setMessage(error instanceof Error ? error.message : 'Could not refresh the provider. Please retry.');
+        } finally {
+            if (version === providerRefreshVersion.current) setRefreshingProvider(false);
         }
     }
 
@@ -481,6 +503,12 @@ export default function RequestServiceScreen() {
                             </View>
                         ) : null}
                         <Text style={foundation.typography.label}>Provider: {provider?.companyName || 'Not selected'}</Text>
+                        {!provider ? (
+                            <View style={{ gap: foundation.spacing.compact }}>
+                                <Text style={foundation.typography.body}>The company connection must finish before this request can be sent.</Text>
+                                <ThemedButton title={refreshingProvider ? 'Checking connection...' : 'Refresh provider'} variant="secondary" disabled={refreshingProvider || sending} onPress={() => void refreshProvider()} />
+                            </View>
+                        ) : null}
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
                             <ThemedButton title="Regular" variant={requestType === 'regular' ? 'primary' : 'secondary'} onPress={() => setRequestType('regular')} />
                             <ThemedButton title="Emergency" variant={requestType === 'emergency' ? 'primary' : 'secondary'} onPress={() => setRequestType('emergency')} />
@@ -527,6 +555,7 @@ export default function RequestServiceScreen() {
                                 </View>
                             )}
                         </ThemedCard>
+                        {!provider ? <Text style={foundation.typography.body}>Waiting for your company connection. Use Refresh provider above after the invitation is connected.</Text> : null}
                         <ThemedButton
                             title={sending ? 'Sending...' : requestType === 'emergency' ? 'Request Emergency Service' : 'Request Service'}
                             disabled={sending || !provider || hasUnresolvedServiceRequestMedia(media)}

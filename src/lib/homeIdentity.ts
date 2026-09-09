@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { requireActivePropertyMembership } from './activeProperty';
 import type { ProviderHomeItemsReadContext } from './providerHomeItems';
+import { customerInvitationPath } from './customerInvitationConnection';
 import { runRecoverableHomeCreation, type HomeCreationRecoveryOptions } from './home-creation-recovery';
 import {
     loadCompanyHomeStructureAccess,
@@ -180,8 +181,8 @@ export async function loadCompanyHomeIdentity(context: ProviderHomeItemsReadCont
     return mergeHomeDetails(identity, normalizeHomeProfileDetails(row), accessDetails);
 }
 
-export async function createFirstHomeIdentity(input: HomeIdentityInput, recovery: HomeCreationRecoveryOptions = {}) {
-    return createHomeIdentity(input, 'create_homeowner_first_property', recovery);
+export async function createFirstHomeIdentity(input: HomeIdentityInput, recovery: HomeCreationRecoveryOptions = {}, invitationPath: string | null = null) {
+    return createHomeIdentity(input, 'create_homeowner_first_property', recovery, invitationPath);
 }
 
 export async function createAdditionalHomeIdentity(input: HomeIdentityInput, recovery: HomeCreationRecoveryOptions = {}) {
@@ -191,7 +192,8 @@ export async function createAdditionalHomeIdentity(input: HomeIdentityInput, rec
 async function createHomeIdentity(
     input: HomeIdentityInput,
     rpcName: 'create_homeowner_first_property' | 'create_homeowner_property',
-    recovery: HomeCreationRecoveryOptions
+    recovery: HomeCreationRecoveryOptions,
+    invitationPath: string | null = null,
 ) {
     const {
         data: { user },
@@ -206,8 +208,17 @@ async function createHomeIdentity(
         createIdentity: async () => {
             // Keep the existing server-side first-home / verified place-and-unit
             // idempotency. Do not synthesize a new property ID on the client.
-            const { data, error } = await supabase.rpc(rpcName, buildHomeIdentityRpcPayload(input));
-            if (error) throw new Error('We could not confirm your home right now. Please try again.');
+            const invitePath = customerInvitationPath(invitationPath);
+            const payload = buildHomeIdentityRpcPayload(input);
+            const { data, error } = invitePath
+                ? await supabase.rpc('create_invited_homeowner_first_property', {
+                    p_home: payload,
+                    p_invite_code: new URL(invitePath, 'https://app.local').searchParams.get('code'),
+                })
+                : await supabase.rpc(rpcName, payload);
+            if (error) throw new Error(invitePath
+                ? `We could not finish your home and inviting company connection: ${error.message}`
+                : 'We could not confirm your home right now. Please try again.');
             return String(firstRow<PropertyRpcRow>(data)?.property_id || '').trim();
         },
         finishSetup: (propertyId) => finishCreatedHomeIdentity(propertyId, input),

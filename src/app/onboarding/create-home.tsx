@@ -29,6 +29,8 @@ import { type PendingHomeSetup } from '../../lib/home-creation-recovery';
 import { selectActiveProperty } from '../../lib/activeProperty';
 import { homeSetupRoute } from '../../lib/home-setup-integrity-core';
 import { supabase } from '../../lib/supabase';
+import { clearPendingCompanyInviteState, getPendingCompanyInviteState } from '../../lib/companyInviteState';
+import { connectCustomerInvitationToHome, customerInvitationPath } from '../../lib/customerInvitationConnection';
 import { useTheme } from '../../theme/useTheme';
 
 type FieldName = 'homeName' | 'address' | 'propertyType' | 'storyCount' | 'gateCode';
@@ -39,7 +41,9 @@ export default function CreateHomeOnboardingScreen() {
     const pathname = usePathname();
     const addingProperty = pathname === '/property/add';
     const params = useLocalSearchParams<{ next?: string | string[] }>();
-    const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
+    const [pendingInvitePath] = useState(() => getPendingCompanyInviteState()?.nextPath);
+    const nextRoute = useMemo(() => customerInvitationPath(params.next)
+        || (!addingProperty ? customerInvitationPath(pendingInvitePath) : null), [params.next, addingProperty, pendingInvitePath]);
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
     const [storyCount, setStoryCount] = useState<HomeStoryCount>('1');
@@ -116,10 +120,15 @@ export default function CreateHomeOnboardingScreen() {
             const recovery = { pendingHome, onIdentityReady: setPendingHome };
             const propertyId = addingProperty
                 ? await createAdditionalHomeIdentity(input, recovery)
-                : await createFirstHomeIdentity(input, recovery);
+                : await createFirstHomeIdentity(input, recovery, nextRoute);
 
             await selectActiveProperty(propertyId);
-            router.replace((addingProperty ? homeSetupRoute(propertyId) : buildThemeRoute(nextRoute, propertyId)) as never);
+            if (nextRoute) {
+                setMessage('Connecting your home to the company that invited you...');
+                const connection = await connectCustomerInvitationToHome(nextRoute, propertyId);
+                clearPendingCompanyInviteState({ inviteCode: connection.inviteCode });
+            }
+            router.replace((addingProperty ? homeSetupRoute(propertyId) : buildThemeRoute(null, propertyId)) as never);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
@@ -303,26 +312,6 @@ export default function CreateHomeOnboardingScreen() {
             return nextErrors;
         });
     }
-}
-
-function firstParam(value: string | string[] | undefined) {
-    return Array.isArray(value) ? value[0] : value;
-}
-
-function resolveSafeNext(value: string | undefined) {
-    if (!value) return null;
-
-    try {
-        const parsed = new URL(value, 'https://app.local');
-
-        if (parsed.pathname === '/customer-invite') {
-            return `${parsed.pathname}${parsed.search}`;
-        }
-    } catch {
-        return null;
-    }
-
-    return null;
 }
 
 function buildThemeRoute(nextRoute: string | null, propertyId: string) {
