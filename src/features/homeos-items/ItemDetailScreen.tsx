@@ -1689,34 +1689,39 @@ export default function ItemScreen() {
         } else {
             setItem(itemRow);
             setMessage('');
-            await loadLifetimeHistory(String(itemRow.id || ''));
-            const nextRelatedItems = await loadRelatedItemsForCurrentItem({
-                propertyId: activeProperty.propertyId,
-                membershipRole: activeProperty.membershipRole,
-                parentItem: itemRow,
-            });
-            setRelatedItems(nextRelatedItems);
-            await loadSafetyGuide({
-                propertyId: activeProperty.propertyId,
-                homeItemId: String(itemRow.id || ''),
-            });
-            if (providerModeContext) {
-                setFiles([]);
-                await loadMaintenanceTasks({
+            // The main item record is enough to render the page. Supporting
+            // history, files, maintenance, and component data can arrive after
+            // the user already sees and can act on the item.
+            setLoading(false);
+            const homeItemId = String(itemRow.id || '');
+            const supportingResults = await Promise.allSettled([
+                loadRelatedItemsForCurrentItem({
                     propertyId: activeProperty.propertyId,
-                    homeItemId: String(itemRow.id || ''),
-                });
-            } else {
-                await loadFiles({
+                    membershipRole: activeProperty.membershipRole,
+                    parentItem: itemRow,
+                }),
+                loadLifetimeHistory(homeItemId),
+                loadSafetyGuide({
                     propertyId: activeProperty.propertyId,
-                    homeItemId: String(itemRow.id || ''),
-                    itemSlug: itemRow.item_slug || String(slug),
-                });
-                await loadMaintenanceTasks({
+                    homeItemId,
+                }),
+                loadMaintenanceTasks({
                     propertyId: activeProperty.propertyId,
-                    homeItemId: String(itemRow.id || ''),
-                });
+                    homeItemId,
+                }),
+                providerModeContext
+                    ? Promise.resolve(setFiles([]))
+                    : loadFiles({
+                        propertyId: activeProperty.propertyId,
+                        homeItemId,
+                        itemSlug: itemRow.item_slug || String(slug),
+                    }),
+            ]);
+            const relatedItemsResult = supportingResults[0];
+            if (relatedItemsResult.status === 'fulfilled') {
+                setRelatedItems(relatedItemsResult.value);
             }
+            return;
         }
 
         setLoading(false);
@@ -2718,6 +2723,26 @@ export default function ItemScreen() {
         return `/item/${encodeURIComponent(itemSlug)}${query}`;
     }
 
+    function openRequestServiceForItem() {
+        if (providerModeContext || isManagementMode) {
+            setMessage('Open Request Service from the homeowner HomeOS to send this item to a provider.');
+            return;
+        }
+
+        const propertyId = String(item?.property_id || '').trim();
+        const itemId = String(item?.id || '').trim();
+
+        if (!propertyId || !itemId) {
+            setMessage('This item is missing its HomeOS property information.');
+            return;
+        }
+
+        router.push({
+            pathname: '/request-service',
+            params: { propertyId, itemId },
+        } as never);
+    }
+
     function openItemManagement() {
         router.push(focusedItemPath('management', hierarchyReturnTo ? { hierarchyReturnTo } : {}) as any);
     }
@@ -3605,15 +3630,26 @@ export default function ItemScreen() {
 
     if (!routeParamsReady || loading) {
         return (
-            <View style={scaleStyle(centerStyle)}>
-                <ActivityIndicator size="large" />
+            <View style={[scaleStyle(centerStyle), { backgroundColor: theme.colors.background }]}>
+                <View style={{ width: '100%', maxWidth: 760 }}>
+                    <HomeHeader />
+                    <ThemedCard style={{ alignItems: 'center', marginTop: scaleIcon(18), padding: scaleIcon(24) }}>
+                        <ActivityIndicator size="large" color={theme.colors.primary} />
+                        <Text style={{ marginTop: scaleIcon(12), color: theme.colors.text, fontWeight: '900', fontSize: scaleFont(18) }}>
+                            Opening item...
+                        </Text>
+                        <Text style={{ marginTop: scaleIcon(6), color: theme.colors.mutedText, textAlign: 'center' }}>
+                            Loading the main HomeOS item information.
+                        </Text>
+                    </ThemedCard>
+                </View>
             </View>
         );
     }
 
     if (!item) {
         return (
-            <View style={scaleStyle(centerStyle)}>
+            <View style={[scaleStyle(centerStyle), { backgroundColor: theme.colors.background }]}>
                 <Text style={{ fontSize: scaleFont(18), color: theme.colors.text, fontWeight: '900' }}>
                     Item not found.
                 </Text>
@@ -5032,7 +5068,7 @@ export default function ItemScreen() {
                                 <ThemedButton
                                     title="Request Service"
                                     variant="secondary"
-                                    onPress={() => setMessage('Request service comes next.')}
+                                    onPress={openRequestServiceForItem}
                                     style={scaleStyle(focusedManagementButtonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -5166,6 +5202,15 @@ export default function ItemScreen() {
                                     : undefined,
                         }}
                     />
+
+                    {!providerModeContext && !isManagementMode ? (
+                        <ThemedButton
+                            title="Request Service"
+                            onPress={openRequestServiceForItem}
+                            style={[scaleStyle(buttonStyle), { alignSelf: 'flex-start', marginTop: scaleIcon(12) }]}
+                            textStyle={scaleStyle(buttonTextStyle)}
+                        />
+                    ) : null}
 
                     {providerModeContext ? (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
@@ -6037,7 +6082,7 @@ export default function ItemScreen() {
 
                             <ThemedButton
                                 title="Request Service"
-                                onPress={() => setMessage('Request service comes next.')}
+                                onPress={openRequestServiceForItem}
                                 style={scaleStyle(buttonStyle)}
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />
