@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
-import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
+import JobConversation from '../../components/serviceRequests/JobConversation';
+import ThemedButton from '../../components/theme/ThemedButton';
+import { router } from 'expo-router';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { useTheme } from '../../theme/useTheme';
 
@@ -24,8 +26,9 @@ export type TechOSMessageThreadJob = {
 };
 
 export default function TechOSMessageThreadsPanel({
-    jobs,
+    jobs, companyId,
 }: {
+    companyId?: string | null;
     jobs: TechOSMessageThreadJob[];
 }) {
     const { theme } = useTheme();
@@ -52,10 +55,11 @@ export default function TechOSMessageThreadsPanel({
     return (
         <View style={styles.root}>
             <ThemedCard style={styles.introCard}>
-                <Text style={[styles.title, { color: theme.colors.text }]}>Customer Messages</Text>
-                <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Message the homeowner from the specific job you are working on. The conversation stays with that service request.</Text>
+                <Text style={[styles.title, { color: theme.colors.text }]}>Job Messages</Text>
+                <Text style={[styles.subtitle, { color: theme.colors.mutedText }]}>Open the internal team conversation or customer communication for your job.</Text>
             </ThemedCard>
 
+            <ThemedButton title="Open Message Center / Supervisor requests" onPress={()=>router.push({pathname:'/job-messages',params:{companyId:companyId || jobs[0]?.slot.company_id || ''}} as never)}/>
             {threads.length === 0 ? (
                 <ThemedCard>
                     <Text style={[styles.empty, { color: theme.colors.mutedText }]}>Customer conversations will appear here when a job is assigned to you.</Text>
@@ -92,12 +96,12 @@ export default function TechOSMessageThreadsPanel({
                     </View>
 
                     {!!selectedThread?.request && (
-                        <ServiceRequestThread
+                        <JobConversation
+                            key={selectedThread.request.id}
                             companyId={selectedThread.slot.company_id}
                             serviceRequestId={selectedThread.request.id}
                             scheduleSlotId={selectedThread.slot.id}
-                            viewer="technician"
-                            title={`Customer communication · ${getJobTitle(selectedThread)}`}
+                            title={`Job messages · ${getJobTitle(selectedThread)}`}
                         />
                     )}
                 </>

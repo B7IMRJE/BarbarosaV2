@@ -2,7 +2,7 @@ export type SharedCoreRole =
     | 'owner'
     | 'admin'
     | 'manager'
-    | 'supervisor'
+    | 'office_supervisor'
     | 'office'
     | 'dispatcher'
     | 'sales'
@@ -13,7 +13,7 @@ const INTERNAL_COMPANY_WIDE_ROLES = new Set<SharedCoreRole>([
     'owner',
     'admin',
     'manager',
-    'supervisor',
+    'office_supervisor',
     'office',
     'dispatcher',
 ]);

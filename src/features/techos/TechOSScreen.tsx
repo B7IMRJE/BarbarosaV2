@@ -1,10 +1,10 @@
+import JobConversation from '../../components/serviceRequests/JobConversation';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import TechnicianDispatchChat from '../../components/dispatch/TechnicianDispatchChat';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
@@ -3488,6 +3488,7 @@ function TechOSDashboardContent({
     if (activeView === 'messages') {
         return (
             <TechOSMessageThreadsPanel
+                companyId={activeCompanyId}
                 jobs={[...activeJobs, ...historyJobs]}
             />
         );
@@ -5249,17 +5250,13 @@ function TechOSAssignedJobDetail({
 
             {openSectionKey === 'messages' && !!chatServiceRequestId && (
                 <TechOSDetailSection
-                    title="Message Dispatch"
-                    description="Send a quick job message or ask Dispatch for assistance."
+                    title="Job communication"
+                    description="Private team help and customer communication are separate conversations."
                     techOSTheme={techOSTheme}
                     variantKey="note"
                     onClose={() => setOpenSectionKey(null)}
                 >
-                    <TechnicianDispatchChat
-                        companyId={job.slot.company_id}
-                        serviceRequestId={chatServiceRequestId}
-                        techOSTheme={techOSTheme}
-                    />
+                    <JobConversation companyId={job.slot.company_id} serviceRequestId={chatServiceRequestId} scheduleSlotId={job.slot.id} />
                 </TechOSDetailSection>
             )}
 

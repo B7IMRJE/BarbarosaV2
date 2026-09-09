@@ -36,25 +36,11 @@ function salesTechEstimateAuthoringCannotBeDisabled() {
 }
 
 function activeTechnicianCanUseEstimateWorkflow() {
-    assert(canUseCompanyEstimateWorkflow({
-        role: 'technician',
-        status: 'active',
-        permissions: {
-            can_create_estimates: false,
-            can_add_item_to_estimate: false,
-        },
-    }), 'Active technicians should use estimate workflow even when old estimate flags are false.');
+    assert(canUseCompanyEstimateWorkflow({role:'technician',status:'active'}), 'Technicians retain estimate workflow by default.');
+    assert(!canUseCompanyEstimateWorkflow({role:'technician',status:'active',permissions:{can_create_estimates:false}}), 'Main management can remove technician estimate creation.');
 }
-
 function activeTechAliasCanUseEstimateWorkflow() {
-    assert(canUseCompanyEstimateWorkflow({
-        role: 'tech',
-        status: 'active',
-        permissions: {
-            can_create_estimates: false,
-            can_add_item_to_estimate: false,
-        },
-    }), 'Active tech alias should use estimate workflow.');
+    assert(canUseCompanyEstimateWorkflow({role:'tech',status:'active'}), 'Technician alias uses the same defaults.');
 }
 
 function inactiveTechnicianCannotUseEstimateWorkflow() {
@@ -69,19 +55,10 @@ function inactiveTechnicianCannotUseEstimateWorkflow() {
 }
 
 function estimateWorkflowDoesNotGrantTechnicianManagementFlags() {
-    const technician = {
-        role: 'technician',
-        status: 'active',
-        permissions: {
-            can_create_estimates: false,
-            can_add_item_to_estimate: false,
-        },
-    };
-
-    assert(canUseCompanyEstimateWorkflow(technician), 'Technician estimate workflow access should stay enabled.');
-    assert(!hasCompanyPermission(technician, 'can_create_estimates'), 'Technician legacy create-estimate flag should remain false.');
-    assert(!hasCompanyPermission(technician, 'can_add_item_to_estimate'), 'Technician legacy add-item flag should remain false.');
-    assert(!hasCompanyPermission(technician, 'can_manage_price_book'), 'Technicians should not change company selling prices by default.');
+    const technician={role:'technician',status:'active'};
+    assert(canUseCompanyEstimateWorkflow(technician), 'Technician defaults include estimates.');
+    assert(!hasCompanyPermission(technician,'can_manage_company_users'), 'Estimate access does not grant team management.');
+    assert(!hasCompanyPermission(technician,'can_manage_price_book'), 'Estimate access does not grant price editing.');
 }
 
 function managementRolesCanManagePriceBookByDefault() {

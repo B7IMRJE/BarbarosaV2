@@ -1,6 +1,5 @@
 import { supabase } from './supabase';
 import {
-    canDispatchCompanyOperationsForSubject,
     normalizeCompanyRoleValue,
     normalizeCompanyStatusValue,
 } from './dispatcherAuthorization';
@@ -15,7 +14,11 @@ export type CompanyPermissionKey =
     | 'can_view_customers'
     | 'can_view_jobs'
     | 'can_manage_company_users'
-    | 'can_manage_company_profile';
+    | 'can_manage_company_profile'
+    | 'can_access_management'
+    | 'can_dispatch'
+    | 'can_manage_catalog'
+    | 'can_view_all_job_messages';
 
 export type CompanyPermissionSet = Record<CompanyPermissionKey, boolean>;
 
@@ -48,6 +51,11 @@ export const COMPANY_PERMISSION_LABELS: Record<CompanyPermissionKey, string> = {
     can_view_jobs: 'View jobs',
     can_manage_company_users: 'Manage company users',
     can_manage_company_profile: 'Manage company profile',
+    can_access_management: 'Open ManagementOS',
+    can_dispatch: 'Dispatch and office operations',
+    can_manage_catalog: 'Manage catalog',
+    can_view_all_job_messages: 'Oversee messages for all jobs',
+
 };
 
 const EMPTY_PERMISSIONS: CompanyPermissionSet = {
@@ -59,17 +67,25 @@ const EMPTY_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: false,
     can_manage_company_users: false,
     can_manage_company_profile: false,
+    can_access_management: false,
+    can_dispatch: false,
+    can_manage_catalog: false,
+    can_view_all_job_messages: false,
 };
 
 const TECHNICIAN_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
-    can_create_estimates: false,
-    can_add_item_to_estimate: false,
+    can_create_estimates: true,
+    can_add_item_to_estimate: true,
     can_manage_price_book: false,
     can_view_customers: false,
     can_view_jobs: true,
     can_manage_company_users: false,
     can_manage_company_profile: false,
+    can_access_management: false,
+    can_dispatch: false,
+    can_manage_catalog: false,
+    can_view_all_job_messages: false,
 };
 
 const SALES_TECH_PERMISSIONS: CompanyPermissionSet = {
@@ -81,6 +97,10 @@ const SALES_TECH_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: true,
     can_manage_company_users: false,
     can_manage_company_profile: false,
+    can_access_management: false,
+    can_dispatch: false,
+    can_manage_catalog: false,
+    can_view_all_job_messages: false,
 };
 
 export const SALES_TECH_RESTRICTED_PERMISSION_KEYS: CompanyPermissionKey[] = [
@@ -104,6 +124,10 @@ const DISPATCH_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: true,
     can_manage_company_users: false,
     can_manage_company_profile: false,
+    can_access_management: true,
+    can_dispatch: true,
+    can_manage_catalog: false,
+    can_view_all_job_messages: true,
 };
 
 const MANAGER_PERMISSIONS: CompanyPermissionSet = {
@@ -115,6 +139,10 @@ const MANAGER_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: true,
     can_manage_company_users: true,
     can_manage_company_profile: true,
+    can_access_management: true,
+    can_dispatch: true,
+    can_manage_catalog: true,
+    can_view_all_job_messages: true,
 };
 
 const ADMIN_PERMISSIONS: CompanyPermissionSet = {
@@ -126,6 +154,10 @@ const ADMIN_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: true,
     can_manage_company_users: true,
     can_manage_company_profile: true,
+    can_access_management: true,
+    can_dispatch: true,
+    can_manage_catalog: true,
+    can_view_all_job_messages: true,
 };
 
 const OWNER_PERMISSIONS: CompanyPermissionSet = {
@@ -137,6 +169,10 @@ const OWNER_PERMISSIONS: CompanyPermissionSet = {
     can_view_jobs: true,
     can_manage_company_users: true,
     can_manage_company_profile: true,
+    can_access_management: true,
+    can_dispatch: true,
+    can_manage_catalog: true,
+    can_view_all_job_messages: true,
 };
 
 export function normalizeCompanyRole(role?: string | null) {
@@ -160,13 +196,14 @@ export function isSalesCompanyRole(role?: string | null) {
 }
 
 export function isDispatchCompanyRole(role?: string | null) {
-    return ['office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(role));
+    return ['office', 'dispatcher', 'office_supervisor'].includes(normalizeCompanyRole(role));
 }
 
 export function getRoleDefaultPermissions(role?: string | null): CompanyPermissionSet {
     const normalizedRole = normalizeCompanyRole(role);
 
     if (normalizedRole === 'technician') return { ...TECHNICIAN_PERMISSIONS };
+    if (['field_supervisor','supervisor'].includes(normalizedRole)) return { ...TECHNICIAN_PERMISSIONS, can_create_estimates:false, can_add_item_to_estimate:false };
     if (normalizedRole === 'sales') return { ...SALES_TECH_PERMISSIONS };
     if (isDispatchCompanyRole(normalizedRole)) return { ...DISPATCH_PERMISSIONS };
     if (normalizedRole === 'manager') return { ...MANAGER_PERMISSIONS };
@@ -199,18 +236,14 @@ export function canAccessTechOS(subject: CompanyAccessSubject) {
 }
 
 export function canAccessDispatch(subject?: CompanyAccessSubject | null) {
-    return canDispatchCompanyOperationsForSubject(subject);
+    return Boolean(subject && resolveCompanyPermissions(subject).can_dispatch);
 }
 
 export function canUseCompanyEstimateWorkflow(subject?: CompanyAccessSubject | null) {
     if (!subject || !isActiveCompanyStatus(subject.status)) return false;
 
-    if (isSalesCompanyRole(subject.role)) {
-        const permissions = resolveCompanyPermissions(subject);
-        return permissions.can_create_estimates && permissions.can_add_item_to_estimate;
-    }
-
-    return ['owner', 'admin', 'manager', 'technician'].includes(normalizeCompanyRole(subject.role));
+    const permissions = resolveCompanyPermissions(subject);
+    return permissions.can_create_estimates && permissions.can_add_item_to_estimate;
 }
 
 export async function loadCurrentCompanyPermissionAccess(
@@ -518,6 +551,8 @@ function readResolvedPermissionBooleans(row: CompanyPermissionRow): CompanyPermi
     const defaults = getRoleDefaultPermissions(row.role);
 
     return enforceCompanyRoleRestrictions(row.role, {
+        ...defaults,
+        ...sanitizePermissionOverrides(row.permissions as Partial<CompanyPermissionSet>),
         can_view_techos: typeof row.can_view_techos === 'boolean' ? row.can_view_techos : defaults.can_view_techos,
         can_create_estimates: typeof row.can_create_estimates === 'boolean' ? row.can_create_estimates : defaults.can_create_estimates,
         can_add_item_to_estimate: typeof row.can_add_item_to_estimate === 'boolean' ? row.can_add_item_to_estimate : defaults.can_add_item_to_estimate,
@@ -529,10 +564,17 @@ function readResolvedPermissionBooleans(row: CompanyPermissionRow): CompanyPermi
     });
 }
 
-function enforceCompanyRoleRestrictions(
+export function enforceCompanyRoleRestrictions(
     role: string | null | undefined,
     permissions: CompanyPermissionSet
 ): CompanyPermissionSet {
+    const normalized = normalizeCompanyRole(role);
+    if (normalized === 'owner') return getRoleDefaultPermissions('owner');
+    if (!['owner','admin','manager'].includes(normalized)) permissions = { ...permissions, can_manage_company_users: false };
+    if (['field_supervisor','supervisor'].includes(normalized)) return {
+        ...permissions, can_access_management:false, can_dispatch:false, can_manage_catalog:false,
+        can_manage_price_book:false, can_view_customers:false, can_manage_company_users:false, can_manage_company_profile:false,
+    };
     if (!isSalesCompanyRole(role)) return permissions;
 
     return {
@@ -540,8 +582,13 @@ function enforceCompanyRoleRestrictions(
         can_create_estimates: true,
         can_add_item_to_estimate: true,
         can_manage_price_book: false,
+        can_view_customers: false,
         can_manage_company_users: false,
         can_manage_company_profile: false,
+        can_access_management: false,
+        can_dispatch: false,
+        can_manage_catalog: false,
+        can_view_all_job_messages: false,
     };
 }
 

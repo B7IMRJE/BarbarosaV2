@@ -7,10 +7,10 @@ import {
 runSharedCoreAccessPolicyRegressions();
 
 export function runSharedCoreAccessPolicyRegressions() {
-    ['owner', 'admin', 'manager', 'supervisor', 'office', 'dispatcher'].forEach((role) => {
+    ['owner', 'admin', 'manager', 'office_supervisor', 'office', 'dispatcher'].forEach((role) => {
         assert(isSharedCoreCompanyWideRole(role), `${role} must retain company-wide internal access.`);
     });
-    ['technician', 'provider', 'sales', 'homeowner', 'unknown'].forEach((role) => {
+    ['technician', 'field_supervisor', 'supervisor', 'provider', 'sales', 'homeowner', 'unknown'].forEach((role) => {
         assert(!isSharedCoreCompanyWideRole(role), `${role} must not receive company-wide internal access.`);
     });
     assert(canSharedCoreRoleManageCompany('owner'), 'Owners must manage company records.');

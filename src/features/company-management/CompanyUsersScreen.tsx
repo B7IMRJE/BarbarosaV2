@@ -1,3 +1,5 @@
+import CompanyAccessEditor from './CompanyAccessEditor';
+import CompanyMemberAccessPanel from './CompanyMemberAccessPanel';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
@@ -39,6 +41,7 @@ import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
     getRoleDefaultPermissions,
+    enforceCompanyRoleRestrictions,
     isSalesCompanyRole,
     isTechnicianCompanyRole,
     loadCurrentCompanyPermissionAccess,
@@ -164,6 +167,10 @@ const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
     can_view_jobs: 'See company jobs and assigned work.',
     can_manage_company_users: 'Invite, suspend, and manage company team members.',
     can_manage_company_profile: 'Change company identity, branding, and public profile.',
+    can_access_management: 'Open ManagementOS.',
+    can_dispatch: 'Dispatch and office operations.',
+    can_manage_catalog: 'Manage catalog.',
+    can_view_all_job_messages: 'Oversee messages for all jobs.',
 };
 
 export default function CompanyUsersScreen() {
@@ -204,6 +211,8 @@ export default function CompanyUsersScreen() {
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
     const [canManageUsers, setCanManageUsers] = useState(false);
+    const [canAssignGeneralManager, setCanAssignGeneralManager] = useState(false);
+    const [canInviteOwner, setCanInviteOwner] = useState(false);
     const [canViewTeam, setCanViewTeam] = useState(false);
     const [submitStage, setSubmitStage] = useState<SubmitStage>('idle');
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
@@ -228,6 +237,7 @@ export default function CompanyUsersScreen() {
         () => createDefaultRolePermissionProfiles()
     );
     const [permissionSaving, setPermissionSaving] = useState(false);
+    const [inviteOverrides, setInviteOverrides] = useState<Partial<CompanyPermissionSet>>({});
     const [canManageRolePermissions, setCanManageRolePermissions] = useState(false);
     const [nowMs, setNowMs] = useState(() => Date.now());
     const loadCompanyUsersEvent = useEffectEvent(loadCompanyUsers);
@@ -298,7 +308,13 @@ export default function CompanyUsersScreen() {
             setMessage('Checking team access...');
         }
 
-        const accessResult = await loadCompanyUserManagementAccess(String(id));
+        const [accessResult, ownerResult, ownerInviteResult] = await Promise.all([
+            loadCompanyUserManagementAccess(String(id)),
+            supabase.rpc('company_current_user_is_owner', { p_company_id: String(id) }),
+            supabase.rpc('company_can_invite_owner', { p_company_id: String(id) }),
+        ]);
+        setCanAssignGeneralManager(!ownerResult.error && ownerResult.data === true);
+        setCanInviteOwner(!ownerInviteResult.error && ownerInviteResult.data === true);
 
         if (!accessResult.canView) {
             setMembers([]);
@@ -467,10 +483,10 @@ export default function CompanyUsersScreen() {
 
         setRolePermissions((current) => ({
             ...current,
-            [selectedPermissionRole]: {
+            [selectedPermissionRole]: enforceCompanyRoleRestrictions(selectedPermissionRole, {
                 ...current[selectedPermissionRole],
                 [permissionKey]: enabled,
-            },
+            }),
         }));
     }
 
@@ -483,6 +499,10 @@ export default function CompanyUsersScreen() {
 
     async function saveSelectedRolePermissions() {
         if (!id || permissionSaving) return;
+        if (selectedPermissionRole === 'manager' && !canAssignGeneralManager) {
+            setMessage('Only the company owner can change General Manager permissions.');
+            return;
+        }
 
         setPermissionSaving(true);
         setMessage(`Saving ${formatRole(selectedPermissionRole)} permissions...`);
@@ -553,12 +573,20 @@ export default function CompanyUsersScreen() {
             ? `A pending invite already exists for ${normalizedEmail}. Creating a new six-digit code...`
             : 'Creating invitation...');
 
+        if (existingPendingInvite) {
+            const saved = await supabase.rpc('set_company_invitation_access', {
+                p_invitation_id: existingPendingInvite.id, p_role: role, p_permissions: inviteOverrides,
+            });
+            if (saved.error) { setSubmitStage('idle'); setMessage(saved.error.message); return; }
+            invitationToSend = saved.data as CompanyInvitation;
+        }
         if (!existingPendingInvite) {
-            const { data, error } = await supabase.rpc('create_company_user_invitation', {
+            const { data, error } = await supabase.rpc('create_company_invitation_with_access', {
                 p_company_id: String(id),
                 p_email: normalizedEmail,
                 p_full_name: fullName.trim() || null,
                 p_role: role,
+                p_permissions: inviteOverrides,
             });
 
             if (error) {
@@ -615,6 +643,7 @@ export default function CompanyUsersScreen() {
         setFullName('');
         setEmail('');
         setRole('technician');
+        setInviteOverrides({});
         setInvitationResultToReveal({ invitationId: invitationToSend.id });
         setMessage(`Invitation code ready for ${normalizedEmail}: ${manualInvite.inviteCode}`);
     }
@@ -678,6 +707,10 @@ export default function CompanyUsersScreen() {
             return;
         }
 
+        if ((nextRole === 'manager' || member.role === 'manager') && !canAssignGeneralManager) {
+            setMessage('Only the company owner can appoint or change a General Manager.');
+            return;
+        }
         if (normalizeRole(member.role) === nextRole) return;
 
         setActionLoadingKey(`${memberId}:role`);
@@ -997,12 +1030,15 @@ export default function CompanyUsersScreen() {
     }
 
     function prepareOwnerInvite() {
+        if (!canInviteOwner) return;
+        setInviteOverrides({});
         setRole('owner');
         setMessage('Company owner invite selected. Enter the owner name and email, then send the invitation.');
     }
 
     function prepareTechnicianInvite() {
         setRole('technician');
+        setInviteOverrides({});
         setMessage('Technician invite selected. Enter the technician name and email, then send the invitation.');
     }
 
@@ -1111,6 +1147,7 @@ export default function CompanyUsersScreen() {
                                 <ThemedButton
                                     title="Invite Company Owner"
                                     onPress={prepareOwnerInvite}
+                                    disabled={!canInviteOwner}
                                     variant="secondary"
                                     style={actionButtonStyle}
                                 />
@@ -1175,7 +1212,7 @@ export default function CompanyUsersScreen() {
                                         showsHorizontalScrollIndicator={false}
                                         contentContainerStyle={permissionRoleTabsStyle}
                                     >
-                                        {CUSTOMIZABLE_ROLE_OPTIONS.map((option) => {
+                                        {CUSTOMIZABLE_ROLE_OPTIONS.filter((option) => canAssignGeneralManager || option.value !== 'manager').map((option) => {
                                             const selected = selectedPermissionRole === option.value;
 
                                             return (
@@ -1216,6 +1253,7 @@ export default function CompanyUsersScreen() {
                                     <View style={permissionToggleGridStyle}>
                                         {COMPANY_PERMISSION_KEYS.map((permissionKey) => {
                                             const enabled = rolePermissions[selectedPermissionRole][permissionKey];
+                                            const roleProtected = enforceCompanyRoleRestrictions(selectedPermissionRole, { ...rolePermissions[selectedPermissionRole], [permissionKey]: !enabled })[permissionKey] === enabled;
                                             const salesRestricted = selectedPermissionRole === 'sales' &&
                                                 SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey);
                                             const salesRequired = selectedPermissionRole === 'sales' &&
@@ -1244,7 +1282,7 @@ export default function CompanyUsersScreen() {
                                                     </View>
                                                     <Switch
                                                         value={enabled}
-                                                        disabled={salesRestricted || salesRequired}
+                                                        disabled={roleProtected || salesRestricted || salesRequired}
                                                         onValueChange={(value) => toggleRolePermission(permissionKey, value)}
                                                         trackColor={{
                                                             false: theme.colors.border,
@@ -1349,14 +1387,14 @@ export default function CompanyUsersScreen() {
 
                             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Role</Text>
                             <View style={roleGridStyle}>
-                                {ROLE_OPTIONS.map((option) => {
+                                {ROLE_OPTIONS.filter((option) => (option.value !== 'manager' || canAssignGeneralManager) && (option.value !== 'owner' || canInviteOwner)).map((option) => {
                                     const selected = role === option.value;
 
                                     return (
                                         <TouchableOpacity
                                             key={option.value}
                                             activeOpacity={0.82}
-                                            onPress={() => setRole(option.value)}
+                                            onPress={() => { setRole(option.value); setInviteOverrides({}); }}
                                             style={[
                                                 roleChipStyle,
                                                 {
@@ -1388,6 +1426,11 @@ export default function CompanyUsersScreen() {
                                 )}
                             </Text>
 
+                            <CompanyAccessEditor
+                                role={role}
+                                value={resolveCompanyPermissions({ role, status:'active', permissions: { ...(role === 'owner' ? getRoleDefaultPermissions(role) : savedRolePermissions[role]), ...inviteOverrides } })}
+                                onChange={(permissions) => setInviteOverrides(permissions)}
+                            />
                             <ThemedButton
                                 title={inviteSubmitTitle}
                                 onPress={sendInvitation}
@@ -1403,6 +1446,7 @@ export default function CompanyUsersScreen() {
                     </ThemedCard>
                 )}
 
+                {canManageUsers && <CompanyMemberAccessPanel companyId={String(id)} members={members} canAssignGeneralManager={canAssignGeneralManager} rolePermissions={savedRolePermissions} onSaved={() => void loadCompanyUsers(false)} />}
                 {loadingLists ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading company users...</Text>
@@ -1431,6 +1475,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        canAssignGeneralManager={canAssignGeneralManager}
                                         onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
@@ -1461,6 +1506,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        canAssignGeneralManager={canAssignGeneralManager}
                                         onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
@@ -1491,6 +1537,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        canAssignGeneralManager={canAssignGeneralManager}
                                         onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
@@ -1521,6 +1568,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        canAssignGeneralManager={canAssignGeneralManager}
                                         onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
@@ -1551,6 +1599,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        canAssignGeneralManager={canAssignGeneralManager}
                                         onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
@@ -1719,6 +1768,7 @@ function TeamMemberRow({
     onToggle,
     onStatusChange,
     onRoleChange,
+    canAssignGeneralManager,
     onPayBasisChange,
     onSavePublicProfile,
     onSaveProfessionalContact,
@@ -1732,6 +1782,7 @@ function TeamMemberRow({
     professionalContact?: StaffProfessionalContact;
     onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
+    canAssignGeneralManager: boolean;
     onRoleChange: (memberId: string, nextRole: CompanyRole) => Promise<void> | void;
     onPayBasisChange: (memberId: string, nextPayBasis: CompanyPayBasis) => Promise<void> | void;
     onSavePublicProfile: (memberId: string, draft: TechnicianProfileDraft) => Promise<void>;
@@ -1915,11 +1966,11 @@ function TeamMemberRow({
 
                     <DetailPanelSection title="Role & Permissions">
                         <DetailLine label="Role" value={formatRole(member.role)} />
-                        {!companyOwner && (
+                        {!companyOwner && (canAssignGeneralManager || member.role !== 'manager') && (
                             <>
                                 <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Assigned role</Text>
                                 <View style={permissionRoleTabsStyle}>
-                                    {ROLE_OPTIONS.filter((option) => option.value !== 'owner').map((option) => {
+                                    {ROLE_OPTIONS.filter((option) => option.value !== 'owner' && (canAssignGeneralManager || option.value !== 'manager')).map((option) => {
                                         const selected = pendingRole === option.value;
 
                                         return (
@@ -3097,8 +3148,11 @@ async function loadCompanyMembers(companyId: string): Promise<{
     });
 
     if (!rpcResult.error) {
+        const access = await supabase.rpc('get_company_member_access', { p_company_id: companyId });
+        if (access.error) return { data: [], error: access.error };
+        const overrides = new Map((access.data || []).map((row: { id: string; permissions: Partial<CompanyPermissionSet> }) => [row.id, row.permissions]));
         return {
-            data: normalizeCompanyUsers(rpcResult.data),
+            data: normalizeCompanyUsers(rpcResult.data).map((member) => ({ ...member, permissions: overrides.get(member.id) as Partial<CompanyPermissionSet> | undefined })),
             error: null,
         };
     }
@@ -3106,7 +3160,7 @@ async function loadCompanyMembers(companyId: string): Promise<{
     const [directResult, dispatchRosterResult] = await Promise.all([
         supabase
             .from('company_users')
-            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at, pay_basis')
+            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at, pay_basis, permissions')
             .eq('company_id', companyId)
             .order('created_at', { ascending: false }),
         supabase.rpc('get_company_users_for_dispatch', {
@@ -3416,7 +3470,7 @@ function isCompanyOwnerRole(role?: string | null) {
 function isAdminManagerStaffRole(role?: string | null) {
     const normalizedRole = normalizeRole(role);
 
-    return ['admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizedRole);
+    return ['admin', 'manager', 'office', 'dispatcher', 'office_supervisor', 'field_supervisor', 'supervisor'].includes(normalizedRole);
 }
 
 function formatRole(role?: string | null) {
@@ -3424,10 +3478,11 @@ function formatRole(role?: string | null) {
 
     if (normalizedRole === 'owner') return 'Company Owner';
     if (normalizedRole === 'admin') return 'Admin';
-    if (normalizedRole === 'manager') return 'Manager';
+    if (normalizedRole === 'manager') return 'General Manager';
     if (normalizedRole === 'office') return 'Office';
     if (normalizedRole === 'dispatcher') return 'Dispatcher';
-    if (normalizedRole === 'supervisor') return 'Supervisor';
+    if (['field_supervisor','supervisor'].includes(normalizedRole)) return 'Field Supervisor';
+    if (normalizedRole === 'office_supervisor') return 'Office Supervisor';
     if (normalizedRole === 'sales') return 'Sales Tech (Sales)';
     if (normalizedRole === 'technician') return 'Technician';
 

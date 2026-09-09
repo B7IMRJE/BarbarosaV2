@@ -25,7 +25,7 @@ export function runCompanyInvitationRegressions() {
 function everyTeamRoleRemainsSelectable() {
     assert(
         COMPANY_ROLE_OPTIONS.map((option) => option.value).join(',') ===
-            'owner,admin,manager,office,dispatcher,supervisor,sales,technician',
+            'owner,admin,manager,office,dispatcher,field_supervisor,office_supervisor,sales,technician',
         'The invitation form should expose every approved company role exactly once.'
     );
 }
@@ -35,14 +35,15 @@ function permissionFractionsRemainCoverageSummaries() {
         owner: [...COMPANY_PERMISSION_KEYS],
         admin: [...COMPANY_PERMISSION_KEYS],
         manager: [...COMPANY_PERMISSION_KEYS],
-        office: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
-        dispatcher: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
-        supervisor: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
+        office: ['can_view_techos', 'can_view_customers', 'can_view_jobs', 'can_access_management', 'can_dispatch', 'can_view_all_job_messages'],
+        dispatcher: ['can_view_techos', 'can_view_customers', 'can_view_jobs', 'can_access_management', 'can_dispatch', 'can_view_all_job_messages'],
+        field_supervisor: ['can_view_techos', 'can_view_jobs'],
+        office_supervisor: ['can_view_techos', 'can_view_customers', 'can_view_jobs', 'can_access_management', 'can_dispatch', 'can_view_all_job_messages'],
         sales: ['can_view_techos', 'can_create_estimates', 'can_add_item_to_estimate', 'can_view_jobs'],
-        technician: ['can_view_techos', 'can_view_jobs'],
+        technician: ['can_view_techos', 'can_view_jobs', 'can_create_estimates', 'can_add_item_to_estimate'],
     };
 
-    assert(COMPANY_PERMISSION_KEYS.length === 8, 'Role fractions must remain permission coverage out of eight capabilities.');
+    assert(COMPANY_PERMISSION_KEYS.length === 12, 'Role fractions must remain permission coverage out of twelve capabilities.');
 
     for (const role of COMPANY_ROLE_OPTIONS.map((option) => option.value)) {
         const enabledKeys = new Set(coverageFixtures[role]);
@@ -50,7 +51,7 @@ function permissionFractionsRemainCoverageSummaries() {
             COMPANY_PERMISSION_KEYS.map((permissionKey) => [permissionKey, enabledKeys.has(permissionKey)])
         ) as Record<(typeof COMPANY_PERMISSION_KEYS)[number], boolean>;
         assert(
-            formatPermissionCoverage(permissions) === `${enabledKeys.size}/8`,
+            formatPermissionCoverage(permissions) === `${enabledKeys.size}/12`,
             `${role} coverage should report enabled permissions, not a seat limit.`
         );
     }
@@ -82,7 +83,7 @@ function invitationFailuresStaySafeAndActionable() {
 }
 
 function workspaceDerivationKeepsRolesAndCompaniesIsolated() {
-    const managementRoles = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
+    const managementRoles = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'office_supervisor'];
 
     for (const role of managementRoles) {
         const workspaces = buildAuthorizedWorkspaces({

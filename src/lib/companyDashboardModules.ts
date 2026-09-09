@@ -10,6 +10,7 @@ export const COMPANY_DASHBOARD_MODULES = [
     'Analytics',
     'Jobs / Dispatch',
     'Operations Rooms',
+    'Message Center',
     'Team / Technicians',
     'Activity / Audit Log',
     'Catalog',
@@ -27,6 +28,7 @@ export function canViewCompanyDashboardModule(
 ) {
     if (!permissions) return false;
 
+    if (card === 'Message Center') return permissions.can_view_jobs || permissions.can_view_all_job_messages;
     if (card === 'Company Profile / Identity') return permissions.can_manage_company_profile;
     if (card === 'Visual Control Center') return false;
     if (card === 'Customers / Clients') return permissions.can_view_customers;
@@ -37,15 +39,14 @@ export function canViewCompanyDashboardModule(
     if (card === 'Analytics') {
         return permissions.can_manage_company_users || permissions.can_manage_company_profile;
     }
-    if (card === 'Jobs / Dispatch') return permissions.can_view_jobs;
-    if (card === 'Operations Rooms') return permissions.can_view_jobs;
+    if (card === 'Jobs / Dispatch') return permissions.can_dispatch;
+    if (card === 'Operations Rooms') return permissions.can_dispatch;
     if (card === 'Team / Technicians') {
         return permissions.can_manage_company_users || permissions.can_view_jobs;
     }
     if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
-    if (card === 'Catalog' || card === 'Price Book') {
-        return permissions.can_view_techos || permissions.can_manage_price_book;
-    }
+    if (card === 'Catalog') return permissions.can_manage_catalog;
+    if (card === 'Price Book') return permissions.can_manage_price_book;
     if (card === 'Knowledge Engine') return permissions.can_view_jobs;
     if (card === 'Contracts & Legal Documents') return permissions.can_manage_company_profile;
     if (card === 'Settings / Permissions') {

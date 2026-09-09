@@ -9,7 +9,7 @@ export const DISPATCH_COMPANY_OPERATION_ROLES = [
     'manager',
     'office',
     'dispatcher',
-    'supervisor',
+    'office_supervisor',
 ] as const;
 
 export const COMPANY_USER_MANAGEMENT_ROLES = ['owner', 'admin', 'manager'] as const;
@@ -35,6 +35,8 @@ export function normalizeCompanyRoleValue(role?: string | null) {
 
     if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
     if (['sales tech', 'sales_tech', 'sales-tech', 'sales technician', 'sales representative', 'sales rep'].includes(normalizedRole)) return 'sales';
+    if (normalizedRole === 'supervisor') return 'field_supervisor';
+    if (['general_manager','general manager'].includes(normalizedRole)) return 'manager';
     if (normalizedRole === 'dispatch') return 'dispatcher';
     return normalizedRole;
 }

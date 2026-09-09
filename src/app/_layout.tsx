@@ -1,3 +1,4 @@
+import JobNotificationNavigation from '../components/serviceRequests/JobNotificationNavigation';
 import { Slot, router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
@@ -299,6 +300,7 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <DictationProvider>
+        <JobNotificationNavigation ready={routeIsSettled && !isAuthPath(pathname) && !publicPresentation} />
         {routeGuardError ? (
           <View style={serviceErrorWrapStyle}>
             <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
@@ -600,6 +602,7 @@ function resolveRedirectForPath(
       isProviderModeHomeOsPath(pathname, routeParams) ||
       isProviderModeEstimatePath(pathname, routeParams) ||
       isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
       isDispatchPath(pathname) ||
       isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
@@ -621,6 +624,7 @@ function resolveRedirectForPath(
       isAllowedCompanyManagementPath(pathname, routeDecision.allowedCompanyIds) ||
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
       isDispatchPath(pathname) ||
       isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
@@ -644,11 +648,12 @@ function resolveRedirectForPath(
 
     if (
       isAllowedCompanyClientPath(pathname, routeDecision.allowedCompanyIds) ||
-      (!salesTech && isAllowedCompanyPriceBookPath(pathname, routeDecision.allowedCompanyIds)) ||
+      (!salesTech && routeDecision.companyRole !== 'field_supervisor' && isAllowedCompanyPriceBookPath(pathname, routeDecision.allowedCompanyIds)) ||
       (salesTech
         ? isSalesProviderModeHomeOsReadPath(pathname, routeParams, routeDecision.allowedCompanyIds)
         : isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds)) ||
       isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
       isEstimatePath(pathname) ||
       (!salesTech && isJobWorkflowPath(pathname)) ||
       (salesTech && isSalesEstimatePresentationRouteAllowed(
@@ -672,6 +677,7 @@ function resolveRedirectForPath(
 
     if (
       isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
       isJobWorkflowPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
@@ -731,6 +737,7 @@ function isAuthorizedWorkspacePath(
         isProviderModeHomeOsPath(pathname, routeParams) ||
         isProviderModeEstimatePath(pathname, routeParams) ||
         isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
         isDispatchPath(pathname) ||
         isDispatchWallPath(pathname) ||
         isSchedulePath(pathname) ||
@@ -741,6 +748,7 @@ function isAuthorizedWorkspacePath(
 
     if (workspace.kind === 'management') {
       return (
+        pathname === '/job-messages' ||
         isAdminShellPath(pathname) ||
         isAllowedCompanyManagementPath(pathname, companyIds) ||
         isProviderModeHomeOsPath(pathname, routeParams, companyIds) ||
@@ -759,11 +767,12 @@ function isAuthorizedWorkspacePath(
 
       return (
         isAllowedCompanyClientPath(pathname, companyIds) ||
-        (!salesTech && isAllowedCompanyPriceBookPath(pathname, companyIds)) ||
+        (!salesTech && workspace.companyRole !== 'field_supervisor' && isAllowedCompanyPriceBookPath(pathname, companyIds)) ||
         (salesTech
           ? isSalesProviderModeHomeOsReadPath(pathname, routeParams, companyIds)
           : isProviderModeHomeOsPath(pathname, routeParams, companyIds)) ||
         isTechOSPath(pathname) ||
+      pathname === "/job-messages" ||
         isEstimatePath(pathname) ||
         (!salesTech && isJobWorkflowPath(pathname)) ||
         (salesTech && isSalesEstimatePresentationRouteAllowed(

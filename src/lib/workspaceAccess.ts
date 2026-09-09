@@ -6,8 +6,8 @@ export const COMPANY_INVITE_ROUTE = '/company-invite' as const;
 export const WORKSPACE_CHOOSER_ROUTE = '/workspace' as const;
 export const WORKSPACE_ACCESS_ERROR_MESSAGE = 'You are signed in, but we could not load your authorized workspace. Please try again.';
 
-const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
-const TECHOS_COMPANY_ROLES = ['technician', 'sales'];
+const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'office_supervisor'];
+const TECHOS_COMPANY_ROLES = ['technician', 'sales', 'field_supervisor', 'supervisor'];
 const STAFF_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'SALES', 'SALES_TECH', 'SALES-TECH', 'SALES TECH', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH', 'SUPERVISOR'];
 
 export type ProfileRouteFields = {
@@ -25,6 +25,7 @@ export type CompanyRouteAccessRow = {
     status: string | null;
     created_at: string | null;
     can_view_techos?: boolean | null;
+    permissions?: Record<string, boolean> | null;
 };
 
 export type AuthorizedWorkspaceKind = 'administration' | 'management' | 'technician' | 'home';
@@ -150,7 +151,7 @@ export function buildAuthorizedWorkspaces(
         const role = normalizeCompanyUserRole(access.role);
         const companyName = companyNames[companyId] || 'your company';
 
-        if (MANAGEMENT_COMPANY_ROLES.includes(role)) {
+        if (!['field_supervisor','supervisor'].includes(role) && (access.permissions?.can_access_management ?? MANAGEMENT_COMPANY_ROLES.includes(role))) {
             workspaces.push({
                 id: `management:${companyId}`,
                 kind: 'management',

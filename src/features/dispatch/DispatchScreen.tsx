@@ -5,7 +5,7 @@ import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollVi
 import AdminNavBar from '../../components/AdminNavBar';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
-import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
+import JobConversation from '../../components/serviceRequests/JobConversation';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
@@ -3496,12 +3496,11 @@ function DispatchRequestCard({
                             {formatLabel(event.event_type)}: {event.message || 'No message.'}
                         </Text>
                     ))}
-                    <ServiceRequestThread
+                    <JobConversation
                         companyId={request.company_id}
                         serviceRequestId={request.id}
                         scheduleSlotId={currentScheduleSlot?.id || null}
-                        viewer="dispatch"
-                        title={`Customer communication · ${assignedTechnicianLabel}`}
+                        title={`Job messages · ${assignedTechnicianLabel}`}
                     />
                     <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
                         Schedule / Assign

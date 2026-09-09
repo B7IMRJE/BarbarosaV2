@@ -34,8 +34,8 @@ export {
 
 export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
-const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
-const TECHOS_COMPANY_ROLES = ['technician', 'sales'];
+const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'office_supervisor'];
+const TECHOS_COMPANY_ROLES = ['technician', 'sales', 'field_supervisor', 'supervisor'];
 
 type ResolveLoggedInUserRouteOptions = {
     preferredCompanyId?: string | null;
@@ -100,15 +100,14 @@ export function resolveActiveCompanyRoute(
     activeCompanyAccess: CompanyRouteAccessRow[],
     preferredCompanyId?: string | null
 ): LoggedInUserRouteDecision | null {
-    const managementAccess = pickCompanyAccessForRoles(
-        activeCompanyAccess,
-        MANAGEMENT_COMPANY_ROLES,
-        preferredCompanyId
+    const managementRows = activeCompanyAccess.filter(row =>
+        !['field_supervisor','supervisor'].includes(normalizeCompanyUserRole(row.role)) &&
+        (row.permissions?.can_access_management ?? MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(row.role)))
     );
+    const managementAccess = managementRows.find(row => row.company_id === preferredCompanyId) || managementRows[0];
 
     if (managementAccess) {
-        const allowedCompanyIds = activeCompanyAccess
-            .filter((companyUser) => MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(companyUser.role)))
+        const allowedCompanyIds = managementRows
             .map((companyUser) => companyUser.company_id);
 
         return {
@@ -188,6 +187,7 @@ export function mergeCompanyAccessRows(
             full_name: row.full_name || existing?.full_name || null,
             email: row.email || existing?.email || null,
             can_view_techos: row.can_view_techos ?? existing?.can_view_techos ?? null,
+            permissions: row.permissions ?? existing?.permissions ?? null,
         });
     }
 
@@ -209,6 +209,7 @@ function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
                 status: readStringField(record, 'status'),
                 created_at: readStringField(record, 'created_at'),
                 can_view_techos: readBooleanField(record, 'can_view_techos'),
+                permissions: record.permissions && typeof record.permissions === 'object' ? record.permissions as Record<string, boolean> : null,
             };
         })
         .filter((row) => row.company_id);

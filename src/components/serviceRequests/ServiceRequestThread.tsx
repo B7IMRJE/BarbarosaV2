@@ -1,3 +1,4 @@
+import { jobMessageArgs, jobMessageRpc } from '../../lib/jobMessageCenter';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
@@ -61,6 +62,8 @@ export default function ServiceRequestThread({
         let active = true;
         setLoading(true);
         setMessage('');
+        setMessages([]);
+        setDraft('');
 
         void loadServiceRequestThread({ companyId, serviceRequestId, viewer })
             .then((nextMessages) => {
@@ -105,6 +108,12 @@ export default function ServiceRequestThread({
             void supabase.removeChannel(channel);
         };
     }, [companyId, refreshThread, serviceRequestId, viewer]);
+
+    useEffect(() => {
+        if (viewer === 'homeowner' || loading || !messages.length) return;
+        const last = messages[messages.length - 1];
+        void jobMessageRpc('mark_job_customer_messages_read', { ...jobMessageArgs(companyId, serviceRequestId), p_seen_at:last.created_at }).catch(() => undefined);
+    }, [companyId, serviceRequestId, viewer, loading, messages]);
 
     async function sendMessage() {
         if (sending) return;

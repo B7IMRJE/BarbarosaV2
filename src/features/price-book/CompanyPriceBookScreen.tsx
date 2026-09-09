@@ -3440,6 +3440,7 @@ function platformAdminAccess(userId: string, companyId: string): CompanyPermissi
             can_view_jobs: true,
             can_manage_company_users: true,
             can_manage_company_profile: true,
+            can_access_management:true, can_dispatch:true, can_manage_catalog:true, can_view_all_job_messages:true,
         },
     };
 }

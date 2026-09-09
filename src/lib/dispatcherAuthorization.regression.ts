@@ -14,6 +14,8 @@ export function runDispatcherAuthorizationRegressions() {
     inactiveDispatcherIsDenied();
     homeownerIsDeniedCompanyOperations();
     operationRolesMatchExpectedBoundary();
+    assert(!canDispatchCompanyOperationsForSubject({role:'field_supervisor',status:'active'}), 'Field supervisors must not get dispatch access.');
+    assert(!canDispatchCompanyOperationsForSubject({role:'supervisor',status:'active'}), 'Legacy supervisor now has field access.');
 }
 
 function activeDispatcherCanReadCompanyOperations() {
@@ -58,7 +60,7 @@ function homeownerIsDeniedCompanyOperations() {
 
 function operationRolesMatchExpectedBoundary() {
     assert(
-        DISPATCH_COMPANY_OPERATION_ROLES.join('|') === 'owner|admin|manager|office|dispatcher|supervisor',
+        DISPATCH_COMPANY_OPERATION_ROLES.join('|') === 'owner|admin|manager|office|dispatcher|office_supervisor',
         'Company operations should include dispatch roles without adding broad Super Admin concepts.'
     );
 }

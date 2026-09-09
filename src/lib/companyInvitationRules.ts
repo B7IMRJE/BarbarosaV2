@@ -7,6 +7,8 @@ export type CompanyRole =
     | 'office'
     | 'dispatcher'
     | 'supervisor'
+    | 'field_supervisor'
+    | 'office_supervisor'
     | 'sales'
     | 'technician';
 
@@ -15,10 +17,11 @@ export type CustomizableCompanyRole = Exclude<CompanyRole, 'owner'>;
 export const COMPANY_ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Company Owner', value: 'owner' },
     { label: 'Admin', value: 'admin' },
-    { label: 'Manager', value: 'manager' },
+    { label: 'General Manager', value: 'manager' },
     { label: 'Office', value: 'office' },
     { label: 'Dispatcher', value: 'dispatcher' },
-    { label: 'Supervisor', value: 'supervisor' },
+    { label: 'Field Supervisor', value: 'field_supervisor' },
+    { label: 'Office Supervisor', value: 'office_supervisor' },
     { label: 'Sales Tech (Sales)', value: 'sales' },
     { label: 'Technician', value: 'technician' },
 ];
@@ -36,6 +39,11 @@ export const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_view_jobs',
     'can_manage_company_users',
     'can_manage_company_profile',
+    'can_access_management',
+    'can_dispatch',
+    'can_manage_catalog',
+    'can_view_all_job_messages',
+
 ];
 
 export type ReusableInvitation = {

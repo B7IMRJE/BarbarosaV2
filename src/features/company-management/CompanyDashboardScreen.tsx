@@ -179,6 +179,7 @@ const COMPANY_DASHBOARD_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_view_jobs',
     'can_manage_company_users',
     'can_manage_company_profile',
+    'can_access_management', 'can_dispatch', 'can_manage_catalog', 'can_view_all_job_messages',
 ];
 
 export default function CompanyDashboardScreen() {
@@ -656,6 +657,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Team / Technicians') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
+            return;
+        }
+
+        if (card === 'Message Center') {
+            router.push({ pathname: '/job-messages', params: { companyId: activeCompanyId } } as never);
             return;
         }
 
@@ -2216,6 +2222,7 @@ function getModuleDescription(title: string) {
     if (title === 'Opportunities') return 'Track sales opportunities after request triage is built.';
     if (title === 'Estimates / Proposals') return 'Open estimate drafts and proposal foundations without fake pricing.';
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
+    if (title === 'Message Center') return 'Current and previous jobs, private team conversations, customer messages, and supervisor requests.';
     if (title === 'Operations Rooms') return 'Follow timestamped clock, travel, job, media, sales, and closeout activity by team room.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
     if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';

@@ -13,6 +13,8 @@ function runCompanyDashboardModuleRegressions() {
             can_view_techos: true,
             can_view_customers: true,
             can_view_jobs: true,
+            can_dispatch: true,
+            can_manage_catalog: true,
         }),
     });
 
@@ -52,6 +54,7 @@ function permissionSet(overrides: Partial<CompanyPermissionSet>): CompanyPermiss
         can_view_jobs: false,
         can_manage_company_users: false,
         can_manage_company_profile: false,
+        can_access_management:false, can_dispatch:false, can_manage_catalog:false, can_view_all_job_messages:false,
         ...overrides,
     };
 }
