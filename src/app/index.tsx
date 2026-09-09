@@ -235,7 +235,9 @@ export function HomeServicesScreen({
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
   const [pendingServiceRequest, setPendingServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
   const [serviceRequestMedia, setServiceRequestMedia] = useState<ServiceRequestMediaDraft[]>([]);
-  const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
+  // Service requests now open in their own guided screen. Keep the legacy form
+  // hidden until it can be removed alongside its remaining dashboard history.
+  const showServiceRequestForm = false;
   const [showHealthLegend, setShowHealthLegend] = useState(false);
   const [providerCompanyName, setProviderCompanyName] = useState('');
   const [signingOut, setSigningOut] = useState(false);
@@ -1165,10 +1167,10 @@ export function HomeServicesScreen({
             title="Request Service"
             description="Open a regular or emergency service request with your selected provider."
             fallbackIcon="📝"
-            actionLabel={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
+            actionLabel="Open Request Service"
             accentColor={actionCardPalettes.requestService.borderColor}
-            onPress={() => setShowServiceRequestForm((current) => !current)}
-            accessibilityLabel={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
+            onPress={() => router.push('/request-service' as any)}
+            accessibilityLabel="Open Request Service"
             disabled={submittingServiceRequest}
             style={[actionCardStyle, { width: actionCardWidth }]}
           />
