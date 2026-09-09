@@ -42,11 +42,11 @@ export const propertyLandingWorkflowDestinations = [
     },
     {
         key: 'requests',
-        title: 'Service Requests',
-        description: 'Requests, leads, and active jobs.',
-        actionLabel: 'Open Service Requests',
-        accessibilityLabel: 'Open Service Requests',
-        route: '/services',
+        title: 'Request Service',
+        description: 'Start a regular or emergency request for your home.',
+        actionLabel: 'Open Request Service',
+        accessibilityLabel: 'Open Request Service',
+        route: '/request-service',
         icon: '📝',
     },
     {
