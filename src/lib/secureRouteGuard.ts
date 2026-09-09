@@ -1,5 +1,11 @@
 export const SECURE_ROUTE_GUARD_TIMEOUT_MS = 12_000;
 
+// This screen validates its short-lived handoff token instead of requiring an account.
+// Match only the capture route; request forms and neighboring paths remain protected.
+export function isPublicPhoneCapturePath(pathname: string) {
+    return normalizePath(pathname) === '/request-service-phone';
+}
+
 export type SecureRouteGuardParams = {
     providerMode?: string | string[];
     companyId?: string | string[];

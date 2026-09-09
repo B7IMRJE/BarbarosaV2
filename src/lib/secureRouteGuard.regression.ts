@@ -1,5 +1,6 @@
 import {
     SecureRouteGuardTimeoutError,
+    isPublicPhoneCapturePath,
     isSalesEstimatePresentationRouteAllowed,
     secureRouteRenderKey,
     withSecureRouteGuardTimeout,
@@ -8,10 +9,19 @@ import {
 void runSecureRouteGuardRegressions();
 
 export async function runSecureRouteGuardRegressions() {
+    phoneCaptureUsesLinkAccessWithoutOpeningPrivateRoutes();
     assignedJobContextChangesThePrivacyCurtainKey();
     assignedSalesCanOpenOnlyTheTechOSPresentationHandoff();
     await fastPermissionChecksContinue();
     await hangingPermissionChecksBecomeRetryableErrors();
+}
+
+function phoneCaptureUsesLinkAccessWithoutOpeningPrivateRoutes() {
+    assert(isPublicPhoneCapturePath('/request-service-phone'), 'The QR capture screen must open without signing in.');
+    assert(isPublicPhoneCapturePath('/request-service-phone/'), 'A trailing slash must not trigger a login redirect.');
+    for (const path of ['/', '/request-service', '/request-service-phone/admin', '/request-service-phone-other', '/job-messages', '/techos']) {
+        assert(!isPublicPhoneCapturePath(path), `${path} must retain account-based access checks.`);
+    }
 }
 
 function assignedJobContextChangesThePrivacyCurtainKey() {

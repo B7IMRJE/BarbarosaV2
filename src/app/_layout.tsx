@@ -20,6 +20,7 @@ import {
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import {
+  isPublicPhoneCapturePath,
   isSalesEstimatePresentationRouteAllowed,
   secureRouteRenderKey,
   withSecureRouteGuardTimeout,
@@ -90,7 +91,7 @@ export default function Layout() {
   const [routeGuardError, setRouteGuardError] = useState('');
   const currentRouteKey = secureRouteRenderKey(pathname, routeParams);
   const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
-  const publicPresentation = isPresentationPath(normalizePath(pathname));
+  const publicLinkPage = isPresentationPath(normalizePath(pathname)) || isPublicPhoneCapturePath(pathname);
   const checkLoginEvent = useEffectEvent(checkLogin);
 
   useEffect(() => {
@@ -221,7 +222,7 @@ export default function Layout() {
       const currentPath = normalizePath(currentPathname);
       const isPublicAuthPage = isPublicAuthPath(currentPath);
 
-      if (isPublicAuthPage || isPresentationPath(currentPath) || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
+      if (isPublicAuthPage || isPresentationPath(currentPath) || isPublicPhoneCapturePath(currentPath) || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
         finishCheck(runId);
         return;
       }
@@ -300,7 +301,7 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <DictationProvider>
-        <JobNotificationNavigation ready={routeIsSettled && !isAuthPath(pathname) && !publicPresentation} />
+        <JobNotificationNavigation ready={routeIsSettled && !isAuthPath(pathname) && !publicLinkPage} />
         {routeGuardError ? (
           <View style={serviceErrorWrapStyle}>
             <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
@@ -311,18 +312,18 @@ export default function Layout() {
           </View>
         ) : (
           <View style={{ flex: 1 }}>
-            {publicPresentation ? <Slot /> : (
+            {publicLinkPage ? <Slot /> : (
               <GlobalNavigation>
                 <Slot />
               </GlobalNavigation>
             )}
-            {routeIsSettled && !publicPresentation && (
+            {routeIsSettled && !publicLinkPage && (
               <GlobalDispatchChatOverlay
                 pathname={pathname}
                 preferredCompanyId={firstRouteParam(routeParams.companyId)}
               />
             )}
-            {!routeIsSettled && (
+            {!routeIsSettled && !publicLinkPage && (
               <View
                 accessibilityLabel="Opening secure workspace"
                 accessibilityRole="progressbar"
@@ -571,7 +572,7 @@ function resolveRedirectForPath(
     return null;
   }
 
-  if (isPresentationPath(pathname)) {
+  if (isPresentationPath(pathname) || isPublicPhoneCapturePath(pathname)) {
     return null;
   }
 
