@@ -1,4 +1,5 @@
 import CompanyCallIntakeQueue from '../../components/serviceRequests/CompanyCallIntakeQueue';
+import UnavailableDispatchMembers from '../../components/serviceRequests/UnavailableDispatchMembers';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
@@ -3539,6 +3540,7 @@ function DispatchRequestCard({
                                     textStyle={{ fontSize: 12 }}
                                 />
                             </View>
+                            <UnavailableDispatchMembers companyId={request.company_id} />
                             {effectiveAssigneeType === 'sales' && (
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                                     Sales Visit is explicit and server-validated. It opens assigned HomeOS, Catalog, estimate, and proposal tools without technician execution or closeout.

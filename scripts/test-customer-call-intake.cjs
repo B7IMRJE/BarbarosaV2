@@ -39,6 +39,24 @@ require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
  assert.deepEqual(removed, ['handoffs/handoff/token/source.jpg'], 'Finishing capture must never delete a request attachment');
  assert.equal(intake.intakeProgressLabel({ submitted_at: null, property_id: 'home' }), 'Address confirmed · awaiting request');
  assert.equal(intake.intakeReasonLabel('warranty'), 'Warranty review requested');
+
+ // A reloaded request must collect saved phone media, even with no local handoff state.
+ const collectionCalls = [];
+ const sourceId = '10000000-0000-4000-8000-000000000002';
+ stub.supabase.rpc = async (name, args) => { collectionCalls.push(name); return { data: null, error: null }; };
+ stub.supabase.from = () => ({ select: () => ({ in: (_, ids) => ({ is: async () => {
+   collectionCalls.push('load-owned');
+   assert.deepEqual(ids, ['stored-link']);
+   return { data: [{ id: sourceId, media_type: 'photo', storage_path: 'source', file_name: 'phone.jpg', mime_type: 'image/jpeg', size_bytes: 20 }], error: null };
+ } }) }) });
+ stub.supabase.storage.from = () => ({ createSignedUrl: async () => ({ data: { signedUrl: 'https://example.invalid/source' } }) });
+ const collected = await phone.collectPhoneMediaForSubmission(['stored-link', 'stored-link'], []);
+ assert.equal(collected.length, 1, 'Uploaded phone photo must be collected when local media is empty');
+ assert.equal(collected[0].localId, 'phone-' + sourceId);
+ assert.deepEqual(collectionCalls, ['seal_my_service_request_media_handoffs', 'load-owned'], 'Stop late uploads before reading final phone media');
+ stub.supabase.rpc = async () => ({ data: null, error: { message: 'Cannot collect phone photos' } });
+ await assert.rejects(phone.collectPhoneMediaForSubmission(['stored-link'], []), /Cannot collect/);
+ await assert.rejects(phone.discardPhoneHandoffMedia('phone-' + sourceId), /Cannot collect/);
  const media = require('../src/lib/serviceRequestMedia.ts');
  const phoneUuid = '10000000-0000-4000-8000-000000000001';
  let savedRows = [];

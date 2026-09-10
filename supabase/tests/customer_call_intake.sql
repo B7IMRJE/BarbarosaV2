@@ -4,6 +4,7 @@ declare owner_user uuid:=gen_random_uuid(); homeowner uuid:=gen_random_uuid(); o
  company uuid; other_company uuid; call jsonb; repeat_call jsonb; context jsonb; invitation_code text;
  intake uuid; first_home uuid; receipt jsonb; retry_receipt jsonb; setup_call jsonb;
  email text:='intake-'||homeowner::text||'@example.invalid'; denied boolean;
+ handoff record; photo_id uuid:=gen_random_uuid(); inactive_user uuid;
  home_input jsonb:=jsonb_build_object('p_name','Intake test home','p_address_line_1','100 Test Street','p_city','Riverside','p_state','CA','p_postal_code','92501','p_country_code','US','p_formatted_address','100 Test Street, Riverside, CA 92501','p_latitude',33.98,'p_longitude',-117.37,'p_google_place_id','intake-test-'||homeowner::text,'p_property_type','HOUSE');
 begin
  insert into auth.users(id,email,email_confirmed_at) values(owner_user,'owner-'||owner_user::text||'@example.invalid',now()),(homeowner,email,now()),(outsider,'outsider-'||outsider::text||'@example.invalid',now());
@@ -19,6 +20,11 @@ begin
  if call->>'invitation_id' is distinct from repeat_call->>'invitation_id' then raise exception 'Retry created another invitation'; end if;
  intake:=(call->>'intake_id')::uuid;
  if jsonb_array_length(public.get_company_customer_intakes(company))<>1 then raise exception 'Dispatch cannot see unopened call'; end if;
+ context:=public.get_company_customer_intake(company,intake);
+ if context->>'invited_name'<>'Test homeowner' or context->>'service_reason'<>'warranty' or context->>'can_close'<>'true' then raise exception 'Pending lead detail is incomplete'; end if;
+ if context ? 'invite_code' or context ? 'login_code' or context ? 'creation_key' or context ? 'phone_handoff_ids' then raise exception 'Office detail exposes invitation secrets'; end if;
+ if public.get_company_customer_intake(company,gen_random_uuid()) is not null then raise exception 'Wrong intake lookup returned data'; end if;
+
  execute 'reset role';
  update public.company_invitation_rate_events set created_at=now()-interval '2 hours' where company_id=company;
  execute 'set local role authenticated';
@@ -36,6 +42,12 @@ begin
  if not denied then raise exception 'Another customer read private intake'; end if;
  denied:=false; begin perform public.get_company_customer_intakes(company); exception when others then denied:=true; end;
  if not denied then raise exception 'Another company read intake'; end if;
+ denied:=false; begin perform public.get_company_customer_intake(company,intake); exception when others then denied:=true; end;
+ if not denied then raise exception 'Another company opened lead detail'; end if;
+ if public.get_company_customer_intake(other_company,intake) is not null then raise exception 'Company parameter allowed a foreign lead lookup'; end if;
+ denied:=false; begin perform public.get_company_unavailable_dispatch_members(company); exception when others then denied:=true; end;
+ if not denied then raise exception 'Another company read excluded roster'; end if;
+
  if exists(select 1 from public.company_customer_intakes where company_id=company) then raise exception 'Cross-company table read bypassed RLS'; end if;
  execute 'reset role';
 
@@ -45,6 +57,9 @@ begin
  context:=public.get_my_customer_intake(invitation_code,null);
  if context::text like '%PRIVATE OFFICE NOTE%' or context ? 'creation_key' then raise exception 'Customer response contains office-only data'; end if;
  if exists(select 1 from public.company_customer_intakes where company_id=company) then raise exception 'Homeowner can read raw office intake table'; end if;
+ denied:=false; begin perform public.get_company_customer_intake(company,intake); exception when others then denied:=true; end;
+ if not denied then raise exception 'Homeowner opened private office detail'; end if;
+
  denied:=false; begin perform public.submit_my_customer_intake(intake,'leak','regular',null); exception when others then denied:=true; end;
  if not denied then raise exception 'Request submitted without contact/address'; end if;
  perform public.save_my_customer_intake(intake,jsonb_build_object('name','Test homeowner','email','corrected@example.invalid','phone','5550100200'),null,null);
@@ -55,6 +70,22 @@ begin
  retry_receipt:=public.submit_my_customer_intake(intake,'Second tap','emergency',null);
  if receipt->>'service_request_id' is distinct from retry_receipt->>'service_request_id' then raise exception 'Retry duplicated service request'; end if;
  if receipt->>'request_type'<>'emergency' then raise exception 'Office emergency was downgraded'; end if;
+ -- Phone uploads must finish as attachments before an intake can be complete.
+ select * into handoff from public.create_service_request_media_handoff(first_home,'Regression capture');
+ perform public.link_my_customer_intake_phone(intake,handoff.handoff_id);
+ execute 'reset role';
+ insert into public.service_request_media_handoff_items(id,handoff_id,media_type,storage_path,file_name,mime_type,size_bytes)
+ values(photo_id,handoff.handoff_id,'photo','handoffs/'||handoff.handoff_id||'/test/photo.jpg','photo.jpg','image/jpeg',16);
+ execute 'set local role authenticated';
+ denied:=false; begin perform public.finish_my_customer_intake(intake); exception when others then denied:=true; end;
+ if not denied then raise exception 'Intake completed with a missing phone attachment'; end if;
+ denied:=false; begin perform public.seal_my_service_request_media_handoffs(array[gen_random_uuid()]); exception when others then denied:=true; end;
+ if not denied then raise exception 'Unknown/foreign phone link could be sealed'; end if;
+ perform public.seal_my_service_request_media_handoffs(array[handoff.handoff_id]);
+ denied:=false; begin perform public.save_service_request_media_handoff_item(handoff.handoff_id,handoff.handoff_token,gen_random_uuid(),'photo','unused','test.jpg','image/jpeg',16,null); exception when others then denied:=true; end;
+ if not denied then raise exception 'A sealed phone link accepted a late upload'; end if;
+ perform public.discard_my_service_request_phone_media(photo_id);
+ perform public.finish_my_customer_intake(intake);
  execute 'reset role';
  if (select count(*) from public.service_requests where company_id=company)<>1 then raise exception 'Expected exactly one request'; end if;
  if not exists(select 1 from public.service_requests where id=(receipt->>'service_request_id')::uuid and issue_summary like 'Warranty review requested:%') then raise exception 'Warranty reason lost'; end if;
@@ -63,6 +94,15 @@ begin
  perform set_config('request.jwt.claim.sub',owner_user::text,true);
  execute 'set local role authenticated';
  if jsonb_array_length(public.get_company_customer_intakes(company))<>0 then raise exception 'Submitted call still duplicated in pending queue'; end if;
+ context:=public.get_company_customer_intake(company,intake);
+ if context->>'display_code' is null or context->>'service_request_id' is distinct from receipt->>'service_request_id' or context->>'can_close'<>'false' then raise exception 'Submitted lead lost real request reference'; end if;
+ if context::text like '%private test access%' or context ? 'customer_draft' then raise exception 'Private access instructions exposed in lead detail'; end if;
+
+ execute 'reset role';
+ insert into public.company_users(company_id,auth_user_id,full_name,role,status) values(company,outsider,'Inactive test tech','technician','inactive') returning id into inactive_user;
+ execute 'set local role authenticated';
+ if not exists(select 1 from public.get_company_unavailable_dispatch_members(company) where id=inactive_user and status='inactive') then raise exception 'Inactive technician explanation missing'; end if;
+ if exists(select 1 from public.get_company_users_for_dispatch(company) where id=inactive_user) then raise exception 'Inactive technician became assignable'; end if;
  execute 'reset role';
  -- Existing HomeOS customers reuse their home for maintenance, without duplicating identity.
  update public.company_invitation_rate_events set created_at=now()-interval '2 hours' where company_id=company;
@@ -98,6 +138,6 @@ begin
  denied:=false; begin perform public.save_my_customer_intake(intake,null,null,'{}'); exception when others then denied:=true; end;
  if not denied then raise exception 'Revoked invitation still allows changes'; end if;
  execute 'reset role';
- if has_function_privilege('anon','public.get_my_customer_intake(text,uuid)','execute') or has_function_privilege('anon','public.submit_my_customer_intake(uuid,text,text,text)','execute') then raise exception 'Anonymous user has private intake access'; end if;
+ if has_function_privilege('anon','public.get_company_customer_intake(uuid,uuid)','execute') or has_function_privilege('anon','public.get_company_unavailable_dispatch_members(uuid)','execute') or has_function_privilege('anon','public.seal_my_service_request_media_handoffs(uuid[])','execute') or has_function_privilege('anon','public.discard_my_service_request_phone_media(uuid)','execute') or has_function_privilege('anon','public.get_my_customer_intake(text,uuid)','execute') or has_function_privilege('anon','public.submit_my_customer_intake(uuid,text,text,text)','execute') then raise exception 'Anonymous user has private intake access'; end if;
 end $$;
 select 'PASS: office intake, setup-only, idempotent invite/home/request, emergency warranty, preferred company and cross-company/customer privacy' as result;

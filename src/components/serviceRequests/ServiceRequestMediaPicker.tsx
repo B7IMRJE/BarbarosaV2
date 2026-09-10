@@ -1,4 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
+import { discardPhoneHandoffMedia } from '../../lib/serviceRequestPhoneHandoff';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import { Image, Platform, Text, View } from 'react-native';
@@ -138,7 +139,7 @@ export default function ServiceRequestMediaPicker({
 
             const replacement = createServiceRequestMediaDraftFromAsset(result.assets[0], item.mediaType);
             const nextItems = items.map((current) => current.localId === item.localId
-                ? { ...replacement, localId: item.localId, caption: item.caption }
+                ? { ...replacement, caption: item.caption }
                 : current
             );
             const validationMessage = validateServiceRequestMediaSelection(nextItems);
@@ -156,6 +157,7 @@ export default function ServiceRequestMediaPicker({
                 });
             }
 
+            await discardPhoneHandoffMedia(item.localId);
             onChange(nextItems);
             setPickerMessage('');
         } catch (error) {
@@ -167,6 +169,9 @@ export default function ServiceRequestMediaPicker({
 
     async function removeItem(item: ServiceRequestMediaDraft) {
         if (busy) return;
+
+        try { await discardPhoneHandoffMedia(item.localId); }
+        catch (error) { setPickerMessage(getErrorMessage(error)); return; }
 
         if (item.status === 'saved' && item.attachmentId && item.bucket && item.storagePath) {
             onChange(items.map((current) => current.localId === item.localId ? { ...current, status: 'removing' } : current));

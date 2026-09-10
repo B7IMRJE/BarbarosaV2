@@ -38,6 +38,7 @@ import {
 } from '@/lib/serviceRequestMedia';
 import {
     createServiceRequestPhoneHandoff,
+    collectPhoneMediaForSubmission,
     finishServiceRequestPhoneHandoff,
     loadPhoneHandoffMediaAsDrafts,
     loadOwnedPhoneHandoffDrafts,
@@ -141,6 +142,7 @@ export default function RequestServiceScreen() {
         async function load() {
             setLoading(true);
             setIntake(null); setCreatedRequest(null); createdRequestRef.current = null; setSubmitted(false);
+            setMedia([]); setPhoneHandoff(null);
             try {
                 const collection = await loadHomePropertyCollection();
                 if (!current) return;
@@ -164,15 +166,19 @@ export default function RequestServiceScreen() {
                     if (call.service_request_id) {
                         const receipt = await submitCustomerIntake(call.id, '', call.urgency, '');
                         if (!current) return;
-                        createdRequestRef.current = receipt; setCreatedRequest(receipt); setSubmitted(Boolean(call.media_completed_at));
-                        if (!call.media_completed_at) {
-                            const savedPhotos = await loadServiceRequestAttachments(receipt.id);
-                            savedPhotoIds = new Set(savedPhotos.map(photo => photo.id));
-                        }
+                        createdRequestRef.current = receipt; setCreatedRequest(receipt);
+                        const savedPhotos = await loadServiceRequestAttachments(receipt.id);
+                        savedPhotoIds = new Set(savedPhotos.map(photo => photo.id));
                     }
-                    if (!call.media_completed_at && call.phone_handoff_ids?.length) {
+                    let missingPhoneMedia: ServiceRequestMediaDraft[] = [];
+                    if (call.phone_handoff_ids?.length) {
                         const restored = await loadOwnedPhoneHandoffDrafts(call.phone_handoff_ids);
-                        if (current) setMedia(restored.filter(photo => !savedPhotoIds.has(photo.localId.replace(/^phone-/, ''))));
+                        missingPhoneMedia = restored.filter(photo => !savedPhotoIds.has(photo.localId.replace(/^phone-/, '')));
+                    }
+                    if (current) {
+                        setMedia(missingPhoneMedia);
+                        setSubmitted(Boolean(call.media_completed_at) && missingPhoneMedia.length === 0);
+                        if (call.service_request_id && missingPhoneMedia.length) setMessage('Your request is saved. Your phone photos are ready to attach. Tap Retry to finish.');
                     }
                     return;
                 }
@@ -231,7 +237,7 @@ export default function RequestServiceScreen() {
         : '', [phoneHandoff]);
 
     useEffect(() => {
-        if (!phoneHandoff) return;
+        if (!phoneHandoff || sending || submitted) return;
         let current = true;
         async function refresh() {
             try {
@@ -245,7 +251,7 @@ export default function RequestServiceScreen() {
         void refresh();
         const interval = setInterval(() => void refresh(), 2500);
         return () => { current = false; clearInterval(interval); };
-    }, [phoneHandoff]);
+    }, [phoneHandoff, sending, submitted]);
 
     async function openProperty(property: HomePropertySummary, directItemId = '', current = true) {
         if (openingPropertyId) return;
@@ -363,6 +369,14 @@ export default function RequestServiceScreen() {
         setMessage('Sending service request...');
 
         try {
+            // Read the saved links again: another device or a reload may have added photos
+            // that this screen has never polled. Seal uploads before taking the final snapshot.
+            const latestIntake = intake ? await loadCustomerIntake({ intakeId: intake.id }) : null;
+            if (intake && !latestIntake) throw new Error('The invitation could not be loaded. Please retry.');
+            const mediaToSend = await collectPhoneMediaForSubmission(
+                [...(latestIntake?.phone_handoff_ids || []), ...(phoneHandoff ? [phoneHandoff.id] : [])], media,
+            );
+            setMedia(mediaToSend);
             const location = [selectedProperty?.name, scope ? titleCase(scope) : '', selectedArea?.name, selectedItem?.name]
                 .filter(Boolean)
                 .join(' > ');
@@ -382,20 +396,16 @@ export default function RequestServiceScreen() {
             createdRequestRef.current = request;
             setCreatedRequest(request);
             if (requestType === 'emergency') await ensureHomeEmergencyForServiceRequest(request.id);
-            if (media.length) {
+            if (mediaToSend.length) {
                 await uploadPendingServiceRequestMedia({
                     companyId: request.companyId,
                     propertyId: request.propertyId,
                     serviceRequestId: request.id,
-                    items: media,
+                    items: mediaToSend,
                     onItemChange: (localId, updates) => setMedia((current) => current.map((item) => (
                         item.localId === localId ? { ...item, ...updates } : item
                     ))),
                 });
-            }
-            if (phoneHandoff) {
-                await finishServiceRequestPhoneHandoff(phoneHandoff, media);
-                setPhoneHandoff(null);
             }
             void broadcastServiceRequestRefresh(companyServiceRequestTopic(request.companyId), {
                 reason: 'homeowner_request_created',
@@ -404,6 +414,10 @@ export default function RequestServiceScreen() {
             if (intake) {
                 const result = await supabase.rpc('finish_my_customer_intake', { p_intake_id: intake.id });
                 if (result.error) throw result.error;
+            }
+            if (phoneHandoff) {
+                await finishServiceRequestPhoneHandoff(phoneHandoff, mediaToSend);
+                setPhoneHandoff(null);
             }
             setSubmitted(true);
             setMessage(`Service request sent. ${formatServiceRequestReference(request)}.`);

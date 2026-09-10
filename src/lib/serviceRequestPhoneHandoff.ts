@@ -17,6 +17,7 @@ type HandoffItem = {
     size_bytes: number | null;
     duration_seconds: number | null;
     created_at: string;
+    discarded_at?: string | null;
 };
 
 type HandoffPayload = {
@@ -92,13 +93,27 @@ export async function loadPhoneHandoffMediaAsDrafts(handoff: ServiceRequestPhone
 
 export async function loadOwnedPhoneHandoffDrafts(handoffIds: string[]) {
     if (!handoffIds.length) return [];
-    const { data, error } = await supabase.from('service_request_media_handoff_items').select('*').in('handoff_id', handoffIds);
+    const { data, error } = await supabase.from('service_request_media_handoff_items').select('*').in('handoff_id', handoffIds).is('discarded_at', null);
     if (error) throw new Error('Could not restore your phone photos. Please retry.');
     return phoneItemsAsDrafts((data || []) as HandoffItem[]);
 }
 
+export async function discardPhoneHandoffMedia(localId: string) {
+    if (!localId.startsWith('phone-')) return;
+    const { error } = await supabase.rpc('discard_my_service_request_phone_media', { p_item_id: localId.slice(6) });
+    if (error) throw new Error(error.message || 'The phone photo could not be removed. Please retry.');
+}
+
+export async function collectPhoneMediaForSubmission(handoffIds: string[], existing: ServiceRequestMediaDraft[]) {
+    const ids = Array.from(new Set(handoffIds));
+    if (!ids.length) return existing;
+    const { error } = await supabase.rpc('seal_my_service_request_media_handoffs', { p_handoff_ids: ids });
+    if (error) throw new Error(error.message || 'Phone photos could not be collected. Please retry.');
+    return mergePhoneHandoffDrafts(existing, await loadOwnedPhoneHandoffDrafts(ids));
+}
+
 async function phoneItemsAsDrafts(items: HandoffItem[]) {
-    return Promise.all(items.map(async (item): Promise<ServiceRequestMediaDraft> => {
+    return Promise.all(items.filter(item => !item.discarded_at).map(async (item): Promise<ServiceRequestMediaDraft> => {
         const { data } = await supabase.storage.from(SERVICE_REQUEST_MEDIA_BUCKET).createSignedUrl(item.storage_path, 60 * 20);
         return {
             localId: `phone-${item.id}`,

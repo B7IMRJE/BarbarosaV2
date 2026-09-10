@@ -31,35 +31,24 @@ export function useCompanyCallIntakes(companyId: string | null) {
     }, [companyId, version]);
     return { calls, error, refresh: () => setVersion(value => value + 1) };
 }
-export function PendingCallCard({ call, compact = false, onClose }: { call: CustomerIntake; compact?: boolean; onClose?: () => void }) {
+export function PendingCallCard({ call, compact = false }: { call: CustomerIntake; compact?: boolean }) {
     const { theme } = useTheme();
-    const [confirmClose, setConfirmClose] = useState(false);
-    const [closing, setClosing] = useState(false);
-    const [error, setError] = useState('');
     const text = { color: compact ? '#FFFFFF' : theme.colors.text, fontSize: compact ? 14 : 16, lineHeight: compact ? 19 : 23 };
     return <View style={{ padding: 12, borderWidth: 1, borderColor: call.urgency === 'emergency' ? '#EF4444' : theme.colors.border, backgroundColor: compact ? '#153B4D' : theme.colors.surface, borderRadius: 12, gap: 6 }}>
-        <Text style={{ ...text, fontWeight: '900' }}>Call {call.display_number} · {call.confirmed_contact?.name || call.invited_name}</Text>
-        <Text style={text}>{intakeReasonLabel(call.service_reason)}{call.urgency === 'emergency' ? ' · Emergency' : ''}</Text>
+        <Text style={{ ...text, fontWeight: '900' }}>Pending lead · {call.confirmed_contact?.name || call.invited_name}</Text>
+        <Text style={text}>{call.customer_kind === 'existing' ? 'Existing customer' : 'New customer'} · {intakeReasonLabel(call.service_reason)} · {call.urgency === 'emergency' ? 'Emergency' : 'Regular'}</Text>
         <Text style={text}>{intakeProgressLabel(call)}</Text>
         {!!call.address_hint && <Text style={text}>{call.address_hint}</Text>}
         {!!call.customer_summary && <Text numberOfLines={compact ? 2 : undefined} style={text}>{call.customer_summary}</Text>}
-        {compact ? <ThemedButton title="Open call in Dispatch" variant="secondary" onPress={() => router.push(`/dispatch?companyId=${call.company_id}` as never)} /> : <>
+        <ThemedButton title="Open lead" onPress={() => router.push({ pathname: '/dispatch/intake', params: { companyId: call.company_id, intakeId: call.id } } as never)} />
+        {!compact && <>
             <Text selectable style={text}>Phone: {call.confirmed_contact?.phone || call.invited_phone} · Email: {call.confirmed_contact?.email || call.invited_email}</Text>
             {call.confirmed_contact && (call.confirmed_contact.email !== call.invited_email || call.confirmed_contact.phone !== call.invited_phone) ? <Text style={text}>Customer corrected contact details. Review before contacting them.</Text> : null}
             {!!call.previous_work_reference && <Text style={text}>Previous work: {call.previous_work_reference}</Text>}
             {!!call.office_note && <Text style={text}>Internal office note: {call.office_note}</Text>}
             {['expired', 'revoked'].includes(call.invitation_status || '') && <Text style={text}>Invitation {call.invitation_status}. Contact the customer and provide a fresh invitation if needed.</Text>}
             <Text style={text}>The office can contact the caller now. Scheduling becomes available when their address and request are confirmed.</Text>
-            <ThemedButton title={closing ? 'Closing...' : confirmClose ? 'Confirm: close this call without service' : 'Close call without service'} variant="secondary" disabled={closing} onPress={() => {
-                if (!confirmClose) { setConfirmClose(true); return; }
-                setClosing(true);
-                void supabase.rpc('cancel_company_customer_intake', { p_intake_id: call.id }).then(result => {
-                    if (result.error) setError(result.error.message); else onClose?.();
-                    setClosing(false); setConfirmClose(false);
-                });
-            }} />
         </>}
-        {!!error && <Text style={text}>{error}</Text>}
     </View>;
 }
 export default function CompanyCallIntakeQueue({ companyId }: { companyId: string }) {
@@ -72,7 +61,7 @@ export default function CompanyCallIntakeQueue({ companyId }: { companyId: strin
         {!!error && <Text style={{ color: theme.colors.danger }}>{error}</Text>}
         {(['emergency','regular'] as const).map(urgency => {
             const group = calls.filter(call => call.urgency === urgency);
-            return group.length ? <View key={urgency} style={{ gap: 10 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{urgency === 'emergency' ? 'Emergency Leads' : 'Regular Leads'} · {group.length}</Text>{group.map(call => <PendingCallCard key={call.id} call={call} onClose={refresh} />)}</View> : null;
+            return group.length ? <View key={urgency} style={{ gap: 10 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{urgency === 'emergency' ? 'Emergency Leads' : 'Regular Leads'} · {group.length}</Text>{group.map(call => <PendingCallCard key={call.id} call={call} />)}</View> : null;
         })}
     </ThemedCard>;
 }
