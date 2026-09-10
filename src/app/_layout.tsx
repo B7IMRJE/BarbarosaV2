@@ -92,6 +92,8 @@ export default function Layout() {
   const currentRouteKey = secureRouteRenderKey(pathname, routeParams);
   const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
   const publicLinkPage = isPresentationPath(normalizePath(pathname)) || isPublicPhoneCapturePath(pathname);
+  const focusedIntakePage = pathname === CUSTOMER_INVITE_ROUTE || pathname === '/request-service';
+  const standalonePage = publicLinkPage || focusedIntakePage;
   const checkLoginEvent = useEffectEvent(checkLogin);
 
   useEffect(() => {
@@ -301,7 +303,7 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <DictationProvider>
-        <JobNotificationNavigation ready={routeIsSettled && !isAuthPath(pathname) && !publicLinkPage} />
+        <JobNotificationNavigation ready={routeIsSettled && !isAuthPath(pathname) && !standalonePage} />
         {routeGuardError ? (
           <View style={serviceErrorWrapStyle}>
             <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
@@ -312,12 +314,12 @@ export default function Layout() {
           </View>
         ) : (
           <View style={{ flex: 1 }}>
-            {publicLinkPage ? <Slot /> : (
+            {standalonePage ? <Slot /> : (
               <GlobalNavigation>
                 <Slot />
               </GlobalNavigation>
             )}
-            {routeIsSettled && !publicLinkPage && (
+            {routeIsSettled && !standalonePage && (
               <GlobalDispatchChatOverlay
                 pathname={pathname}
                 preferredCompanyId={firstRouteParam(routeParams.companyId)}

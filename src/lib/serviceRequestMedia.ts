@@ -216,6 +216,7 @@ export async function uploadPendingServiceRequestMedia(input: UploadServiceReque
     }
 
     const uploaded: ServiceRequestAttachment[] = [];
+    const existingAttachments = await loadServiceRequestAttachments(input.serviceRequestId);
 
     for (let index = 0; index < input.items.length; index += 1) {
         const item = input.items[index];
@@ -228,7 +229,13 @@ export async function uploadPendingServiceRequestMedia(input: UploadServiceReque
             throw new ServiceRequestMediaUploadError(item.localId, item.fileName, itemError);
         }
 
-        const attachmentId = createAttachmentId();
+        const phoneId = item.localId.startsWith('phone-') ? item.localId.slice(6) : '';
+        const attachmentId = item.attachmentId || (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(phoneId) ? phoneId : createAttachmentId());
+        const existing = existingAttachments.find(attachment => attachment.id === attachmentId);
+        if (existing) {
+            input.onItemChange(item.localId, { attachmentId, serviceRequestId: existing.serviceRequestId, storagePath: existing.storagePath, signedUrl: existing.signedUrl, status: 'saved', error: '' });
+            continue;
+        }
         const storagePath = buildServiceRequestMediaStoragePath({
             companyId: input.companyId,
             propertyId: input.propertyId,
@@ -253,7 +260,7 @@ export async function uploadPendingServiceRequestMedia(input: UploadServiceReque
                 .upload(storagePath, body, {
                     cacheControl: '3600',
                     contentType: item.mimeType,
-                    upsert: false,
+                    upsert: true,
                 });
 
             if (uploadError) {
@@ -286,7 +293,13 @@ export async function uploadPendingServiceRequestMedia(input: UploadServiceReque
             });
             uploaded.push(saved);
         } catch (error) {
-            await supabase.storage.from(SERVICE_REQUEST_MEDIA_BUCKET).remove([storagePath]);
+            // A metadata response can be lost after commit. Never delete a possibly saved attachment.
+            const reconciled = await loadServiceRequestAttachments(input.serviceRequestId).catch(() => []);
+            const confirmed = reconciled.find(attachment => attachment.id === attachmentId);
+            if (confirmed) {
+                input.onItemChange(item.localId, { attachmentId, storagePath: confirmed.storagePath, signedUrl: confirmed.signedUrl, status: 'saved', error: '' });
+                continue;
+            }
             const message = getErrorMessage(error);
             input.onItemChange(item.localId, { status: 'failed', error: message });
             throw new ServiceRequestMediaUploadError(item.localId, item.fileName, message);

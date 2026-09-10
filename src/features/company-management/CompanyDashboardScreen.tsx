@@ -189,6 +189,12 @@ export default function CompanyDashboardScreen() {
     const responsiveLayout = resolveCompanyManagementResponsiveLayout(viewportWidth);
     const isPhoneLayout = responsiveLayout.isPhoneLayout;
     const pagePadding = isPhoneLayout ? 16 : 20;
+    const [moduleGridWidth, setModuleGridWidth] = useState(0);
+    const moduleGridGap = 12;
+    const moduleColumns = Math.max(1, Math.floor((moduleGridWidth + moduleGridGap) / (300 + moduleGridGap)));
+    const moduleCardWidth = moduleGridWidth > 0
+        ? Math.floor((moduleGridWidth - moduleGridGap * (moduleColumns - 1)) / moduleColumns)
+        : undefined;
     const heroLogoSize = isPhoneLayout ? 84 : 88;
     const previewLogoSize = isPhoneLayout ? 112 : 96;
     const [company, setCompany] = useState<Company | null>(null);
@@ -767,7 +773,7 @@ export default function CompanyDashboardScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 1180, minWidth: 0 }}>
+            <View style={{ width: '100%', minWidth: 0 }}>
                 <AdminNavBar
                     companyId={activeCompanyId}
                     backFallback="/super-admin/companies"
@@ -1044,10 +1050,11 @@ export default function CompanyDashboardScreen() {
                     )}
 
                     <View
+                        onLayout={({ nativeEvent }) => setModuleGridWidth(nativeEvent.layout.width)}
                         style={{
                             flexDirection: 'row',
                             flexWrap: 'wrap',
-                            gap: 12,
+                            gap: moduleGridGap,
                             width: '100%',
                             minWidth: 0,
                         }}
@@ -1055,6 +1062,7 @@ export default function CompanyDashboardScreen() {
                         {visibleCards.map((card, index) => (
                             <CompanyModuleCard
                                 key={card}
+                                width={moduleCardWidth}
                                 title={card}
                                 description={getModuleDescription(card)}
                                 actionLabel={getModuleActionLabel(card)}
@@ -2038,6 +2046,7 @@ function CompanyTechOSThemePreview({
 }
 
 function CompanyModuleCard({
+    width,
     title,
     description,
     actionLabel,
@@ -2049,6 +2058,7 @@ function CompanyModuleCard({
     glassDepth,
     onPress,
 }: {
+    width: number | undefined;
     title: string;
     description: string;
     actionLabel: string;
@@ -2060,8 +2070,6 @@ function CompanyModuleCard({
     glassDepth: number;
     onPress: () => void;
 }) {
-    const { width: viewportWidth } = useWindowDimensions();
-    const isPhoneLayout = viewportWidth <= 640;
     const depth = Math.max(1, Math.min(100, glassDepth)) / 100;
 
     const glassColor = mixHexColors(
@@ -2085,9 +2093,9 @@ function CompanyModuleCard({
             accessibilityRole="button"
             onPress={onPress}
             style={({ pressed }) => ({
-                width: isPhoneLayout ? '100%' : '31%',
+                width: width ?? '100%',
                 maxWidth: '100%',
-                minWidth: isPhoneLayout ? 0 : 240,
+                minWidth: 0,
                 flexShrink: 1,
                 minHeight: 118,
                 backgroundColor: isExpanded

@@ -1,3 +1,5 @@
+import CompanyCallIntakeQueue from '@/components/serviceRequests/CompanyCallIntakeQueue';
+import { CUSTOMER_KINDS, SERVICE_REASONS, EMPTY_CALL_DRAFT, type CustomerCallDraft } from '@/lib/customerCallIntake';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
@@ -81,7 +83,7 @@ type CustomerInviteLink = {
     warning: string;
 };
 
-type CustomerInviteForm = {
+type CustomerInviteForm = CustomerCallDraft & {
     invitedName: string;
     invitedEmail: string;
     invitedPhone: string;
@@ -143,6 +145,7 @@ export default function CompanyClientsScreen() {
     );
     const [customerInvites, setCustomerInvites] = useState<CustomerInvite[]>([]);
     const [inviteForm, setInviteForm] = useState<CustomerInviteForm>({
+        ...EMPTY_CALL_DRAFT,
         invitedName: '',
         invitedEmail: '',
         invitedPhone: '',
@@ -152,6 +155,8 @@ export default function CompanyClientsScreen() {
     const [inviteActionId, setInviteActionId] = useState('');
     const [creatingInvite, setCreatingInvite] = useState(false);
     const [inviteMessage, setInviteMessage] = useState('');
+    const creationKey = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const createInFlight = useRef(false);
     const [latestLoginInvite, setLatestLoginInvite] = useState<LatestLoginInvite | null>(null);
     const [searchDraft, setSearchDraft] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
@@ -311,7 +316,7 @@ export default function CompanyClientsScreen() {
     async function createCustomerInvite() {
         const companyId = id ? String(id) : '';
 
-        if (!companyId || creatingInvite) return;
+        if (!companyId || createInFlight.current) return;
 
         const inviteDraft = inviteFormRef.current;
 
@@ -320,14 +325,20 @@ export default function CompanyClientsScreen() {
             return;
         }
 
+        if (!inviteDraft.invitedName.trim() || !inviteDraft.invitedPhone.trim()) {
+            setInviteMessage('Add the customer name and phone number.');
+            return;
+        }
         const invitePayload = buildCustomerInviteRpcPayload(companyId, inviteDraft);
+        createInFlight.current = true;
         setCreatingInvite(true);
         setInviteMessage('Creating customer invite...');
 
-        const { data, error } = await supabase.rpc('create_company_customer_invite', invitePayload);
+        const { data, error } = await supabase.rpc('create_company_customer_intake', { p_company_id: companyId, p_creation_key: creationKey.current, p_details: inviteDraft });
 
         if (error) {
             setCreatingInvite(false);
+            createInFlight.current = false;
             setInviteMessage(`Could not create customer invite: ${error.message}`);
             return;
         }
@@ -336,6 +347,7 @@ export default function CompanyClientsScreen() {
 
         if (!customerInvitePhoneWasPersisted(invitePayload.p_invited_phone, createdInvite?.invited_phone)) {
             setCreatingInvite(false);
+            createInFlight.current = false;
             setInviteMessage('The connection was created, but its phone number was not saved. Your typed contact details were kept.');
             await loadCustomerInvites(companyId);
             return;
@@ -343,6 +355,7 @@ export default function CompanyClientsScreen() {
 
         if (!createdInvite?.invitation_id) {
             setCreatingInvite(false);
+            createInFlight.current = false;
             setInviteMessage('The customer connection was created, but its login invitation could not be identified.');
             await loadCustomerInvites(companyId);
             return;
@@ -350,6 +363,7 @@ export default function CompanyClientsScreen() {
 
         const preparedInvite = await prepareCustomerLoginInvite(createdInvite.invitation_id);
         setCreatingInvite(false);
+        createInFlight.current = false;
 
         if (!preparedInvite.ok || !preparedInvite.login_code) {
             setInviteMessage(preparedInvite.message || 'The customer connection was created, but the six-digit login code could not be created.');
@@ -357,7 +371,8 @@ export default function CompanyClientsScreen() {
             return;
         }
 
-        updateInviteForm({ invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
+        creationKey.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        updateInviteForm({ ...EMPTY_CALL_DRAFT, invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
         setLatestLoginInvite({
             invitationId: createdInvite.invitation_id,
             code: preparedInvite.login_code,
@@ -630,6 +645,12 @@ export default function CompanyClientsScreen() {
                 </Text>
 
                 <InviteCustomerSection
+                    knownCustomers={directoryEntries.map(entry => ({ propertyId: entry.propertyId, label: `${entry.displayName} · ${entry.address}` }))}
+                    onChooseKnown={(propertyId) => {
+                        const existingInvite = customerInvites.find(invitation => invitation.accepted_property_id === propertyId);
+                        const property = propertiesById[propertyId];
+                        updateInviteForm({ knownPropertyId: propertyId, addressHint: formatAddress(property), ...(existingInvite ? { invitedName: existingInvite.invited_name || '', invitedEmail: existingInvite.invited_email || '', invitedPhone: existingInvite.invited_phone || '' } : {}) });
+                    }}
                     form={inviteForm}
                     invites={pendingCustomerInvites}
                     companyName={companyName}
@@ -648,6 +669,7 @@ export default function CompanyClientsScreen() {
                     onDeleteRevoked={deleteRevokedCustomerInvite}
                 />
 
+                {!!id && <CompanyCallIntakeQueue companyId={String(id)} />}
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading clients...</Text>
@@ -809,6 +831,7 @@ export default function CompanyClientsScreen() {
 }
 
 function InviteCustomerSection({
+    knownCustomers, onChooseKnown,
     form,
     invites,
     companyName,
@@ -826,6 +849,8 @@ function InviteCustomerSection({
     onRevoke,
     onDeleteRevoked,
 }: {
+    knownCustomers: { propertyId: string; label: string }[];
+    onChooseKnown: (propertyId: string) => void;
     form: CustomerInviteForm;
     invites: CustomerInvite[];
     companyName: string;
@@ -845,6 +870,7 @@ function InviteCustomerSection({
 }) {
     const { theme } = useTheme();
     const glassPalette = useGlassPalette();
+    const [knownCustomerSearch, setKnownCustomerSearch] = useState('');
     const [composerOpen, setComposerOpen] = useState(false);
     const [pendingOpen, setPendingOpen] = useState(false);
 
@@ -920,8 +946,27 @@ function InviteCustomerSection({
                 <ThemedCard>
                     <Text style={[sectionTitleStyle, { color: glassPalette.text }]}>Invite Homeowner</Text>
                     <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>
-                        Creates a six-digit, one-time HomeOS login code. The customer can connect or create their home after signing in.
+                        Send a browser invitation. Your company becomes preferred automatically. Service calls appear in dispatch while the customer completes the short form.
                     </Text>
+                    <View style={{ gap: 12, marginVertical: 16 }}>
+                        <Text style={{ color: glassPalette.text, fontWeight: '800' }}>Who are you inviting?</Text>
+                        <View style={buttonRowStyle}>{CUSTOMER_KINDS.map(option => <ThemedButton key={option.value} title={option.label} variant={form.customerKind === option.value ? 'primary' : 'secondary'} onPress={() => onChangeForm({ customerKind: option.value, knownPropertyId: '' })} />)}</View>
+                        {form.customerKind === 'existing' && <View style={{ gap: 8 }}>
+                            <Text style={{ color: glassPalette.mutedText }}>Already in HomeOS? Choose their saved home to reuse known details. Otherwise enter their contact information below.</Text>
+                            <ThemedButton title="Customer is not in HomeOS yet" variant={!form.knownPropertyId ? 'primary' : 'secondary'} onPress={() => onChangeForm({ knownPropertyId: '' })} />
+                            <InviteInput label="Find an existing HomeOS customer" value={knownCustomerSearch} placeholder="Search name or address" onChangeText={setKnownCustomerSearch} />
+                            {knownCustomers.filter(customer => customer.label.toLowerCase().includes(knownCustomerSearch.trim().toLowerCase())).slice(0, 8).map(customer => <ThemedButton key={customer.propertyId} title={customer.label} variant={form.knownPropertyId === customer.propertyId ? 'primary' : 'secondary'} onPress={() => onChooseKnown(customer.propertyId)} />)}
+                        </View>}
+                        <Text style={{ color: glassPalette.text, fontWeight: '800' }}>Why are they being invited?</Text>
+                        <View style={buttonRowStyle}>{SERVICE_REASONS.map(option => <ThemedButton key={option.value} title={option.label} variant={form.serviceReason === option.value ? 'primary' : 'secondary'} onPress={() => onChangeForm({ serviceReason: option.value, ...(option.value === 'setup' ? { urgency: 'regular' as const } : {}) })} />)}</View>
+                        {form.serviceReason !== 'setup' ? <>
+                            <Text style={{ color: glassPalette.text, fontWeight: '800' }}>How urgent is the call?</Text>
+                            <View style={buttonRowStyle}><ThemedButton title="Regular" variant={form.urgency === 'regular' ? 'primary' : 'secondary'} onPress={() => onChangeForm({ urgency: 'regular' })} /><ThemedButton title="Emergency" variant={form.urgency === 'emergency' ? 'primary' : 'secondary'} onPress={() => onChangeForm({ urgency: 'emergency' })} /></View>
+                            <InviteInput label="Problem summary (shared with the customer)" value={form.customerSummary} placeholder="What did the customer report?" onChangeText={customerSummary => onChangeForm({ customerSummary })} />
+                            {form.serviceReason === 'warranty' ? <InviteInput label="Previous work / job reference" value={form.previousWorkReference} placeholder="Optional reference for office review" onChangeText={previousWorkReference => onChangeForm({ previousWorkReference })} /> : null}
+                        </> : <Text style={{ color: glassPalette.mutedText }}>Adds the customer without opening a service call.</Text>}
+                        <InviteInput label="Service address, if already known" value={form.addressHint} placeholder="Customer will confirm the address" onChangeText={addressHint => onChangeForm({ addressHint })} />
+                    </View>
                     <View style={formGridStyle}>
                         <InviteInput
                             label="Customer name"
@@ -932,7 +977,7 @@ function InviteCustomerSection({
                         <InviteInput
                             label="Email"
                             value={form.invitedEmail}
-                            placeholder="Optional"
+                            placeholder="Required for the secure invitation"
                             onChangeText={(invitedEmail) => onChangeForm({ invitedEmail })}
                         />
                         <InviteInput
@@ -944,7 +989,7 @@ function InviteCustomerSection({
                             onChangeText={(invitedPhone) => onChangeForm({ invitedPhone })}
                         />
                         <InviteInput
-                            label="Note"
+                            label="Internal office note (never shown to customer)"
                             value={form.note}
                             placeholder="Optional internal note"
                             onChangeText={(note) => onChangeForm({ note })}

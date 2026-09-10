@@ -1,5 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
-import { useLocalSearchParams, type Href } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
@@ -19,38 +19,15 @@ type Homeowner = {
     phone: string | null;
 };
 
-const invitationStatuses = [
-    {
-        title: 'Pending',
-        body: 'Invites waiting for a homeowner to accept will appear here after the invite Edge Function is connected.',
-    },
-    {
-        title: 'Accepted',
-        body: 'Accepted invitations will show the homeowner account and first-home setup state.',
-    },
-    {
-        title: 'Revoked',
-        body: 'Revoked invitations will stay visible for audit history.',
-    },
-    {
-        title: 'Expired',
-        body: 'Expired invitations will be available for resend once server-side invite handling is live.',
-    },
-];
-
 export default function HomeownersScreen() {
     const { theme } = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
 
     const [homeowners, setHomeowners] = useState<Homeowner[]>([]);
-    const [inviteFullName, setInviteFullName] = useState('');
-    const [inviteEmail, setInviteEmail] = useState('');
-    const [invitePhone, setInvitePhone] = useState('');
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [message, setMessage] = useState('');
-    const [inviteMessage, setInviteMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const loadHomeownersEvent = useEffectEvent(loadHomeowners);
 
@@ -75,10 +52,8 @@ export default function HomeownersScreen() {
         setHomeowners(data || []);
     }
 
-    function showInviteComingSoon() {
-        setInviteMessage(
-            'Invite sending requires the server-side Edge Function so HomeOS can create the invitation and send email securely.'
-        );
+    function openCustomerInvitations() {
+        router.push(`/super-admin/company/${id}/clients` as never);
     }
 
     async function addHomeowner() {
@@ -135,69 +110,26 @@ export default function HomeownersScreen() {
                 </Text>
 
                 <ThemedCard style={cardSpacingStyle}>
-                    <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Phase 1 shell</Text>
+                    <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Customer invitations</Text>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Homeowner</Text>
                     <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
-                        This captures the invite UI only. Email sending and invitation creation will run through an
-                        Edge Function in the next phase.
+                        Choose a new or existing customer, the reason for the invitation, and whether the call is an emergency. Review pending invitations in the customer directory.
                     </Text>
 
-                    <ThemedInput
-                        label="Full Name"
-                        placeholder="Homeowner name"
-                        value={inviteFullName}
-                        onChangeText={setInviteFullName}
-                    />
-
-                    <ThemedInput
-                        label="Email"
-                        placeholder="homeowner@example.com"
-                        value={inviteEmail}
-                        onChangeText={setInviteEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                    />
-
-                    <ThemedInput
-                        label="Phone"
-                        placeholder="Phone number"
-                        value={invitePhone}
-                        onChangeText={setInvitePhone}
-                        keyboardType="phone-pad"
-                    />
-
                     <ThemedButton
-                        title="Invite Sending Coming Soon"
-                        onPress={showInviteComingSoon}
+                        title="Open Customer Invitations"
+                        onPress={openCustomerInvitations}
                         variant="secondary"
                         style={buttonSpacingStyle}
                     />
 
-                    {!!inviteMessage && (
-                        <Text style={[messageTextStyle, { color: theme.colors.mutedText }]}>
-                            {inviteMessage}
-                        </Text>
-                    )}
                 </ThemedCard>
-
-                <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Invitation Status</Text>
-
-                <View style={statusGridStyle}>
-                    {invitationStatuses.map((status) => (
-                        <ThemedCard key={status.title} style={statusCardStyle}>
-                            <Text style={[statusTitleStyle, { color: theme.colors.text }]}>{status.title}</Text>
-                            <Text style={[statusBodyStyle, { color: theme.colors.mutedText }]}>
-                                {status.body}
-                            </Text>
-                        </ThemedCard>
-                    ))}
-                </View>
 
                 <ThemedCard style={cardSpacingStyle}>
                     <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Existing records</Text>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Manual Homeowner Record</Text>
                     <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
-                        This keeps the current customer-record flow available while invitation sending is built.
+                        Save a contact record here. Use Customer Invitations above to give a homeowner access to HomeOS.
                     </Text>
 
                     <ThemedInput
@@ -377,35 +309,9 @@ const sectionHeadingStyle = {
     marginBottom: 14,
 };
 
-const statusGridStyle = {
-    width: '100%' as const,
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 12,
-    marginBottom: 24,
-};
 
-const statusCardStyle = {
-    maxWidth: '100%' as const,
-    flexGrow: 1,
-    flexBasis: 220,
-    flexShrink: 1,
-    minWidth: 0,
-};
 
-const statusTitleStyle = {
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
 
-const statusBodyStyle = {
-    fontSize: 14,
-    fontWeight: '800' as const,
-    lineHeight: 20,
-    marginTop: 8,
-};
 
 const listStyle = {
     width: '100%' as const,

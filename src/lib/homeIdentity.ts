@@ -299,7 +299,7 @@ export function formatSingleLineAddress(address?: VerifiedAddress | null) {
     return formatHomeAddress(address).replace(/\n/g, ', ');
 }
 
-function buildHomeIdentityRpcPayload({ name, propertyType, address }: HomeIdentityInput) {
+export function buildHomeIdentityRpcPayload({ name, propertyType, address }: Pick<HomeIdentityInput, 'name' | 'propertyType' | 'address'>) {
     return {
         p_name: name.trim(),
         p_address_line_1: address.addressLine1.trim(),

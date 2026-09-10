@@ -1,3 +1,5 @@
+import { PendingCallCard, useCompanyCallIntakes } from '../../components/serviceRequests/CompanyCallIntakeQueue';
+import type { CustomerIntake } from '../../lib/customerCallIntake';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { Component, useEffect, useEffectEvent, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
@@ -328,6 +330,7 @@ function DispatchWallContent() {
     const [companyAccess, setCompanyAccess] = useState<WallCompanyAccess | null>(null);
     const [companyChoices, setCompanyChoices] = useState<WallCompanyAccess[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
+    const { calls: pendingCalls, error: intakeError } = useCompanyCallIntakes(demoMode ? null : companyAccess?.company_id || null);
     const [requests, setRequests] = useState<DispatchWallRequest[]>([]);
     const [scheduleSlots, setScheduleSlots] = useState<DispatchWallScheduleSlot[]>([]);
     const [timingEvents, setTimingEvents] = useState<DispatchWallTimingEvent[]>([]);
@@ -832,6 +835,7 @@ function DispatchWallContent() {
                             key={key}
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
+                            pendingCalls={pendingCalls.filter(call => key === (call.urgency === 'emergency' ? 'emergency_leads' : 'regular_leads'))}
                             compactHeight={compactHeight}
                             compactWidth={false}
                             soldJobsByRequestId={soldJobsByRequestId}
@@ -853,6 +857,7 @@ function DispatchWallContent() {
                             key={key}
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
+                            pendingCalls={pendingCalls.filter(call => key === (call.urgency === 'emergency' ? 'emergency_leads' : 'regular_leads'))}
                             compactHeight={compactHeight}
                             compactWidth={compactWidth}
                             soldJobsByRequestId={soldJobsByRequestId}
@@ -869,6 +874,7 @@ function DispatchWallContent() {
                             key={key}
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
+                            pendingCalls={pendingCalls.filter(call => key === (call.urgency === 'emergency' ? 'emergency_leads' : 'regular_leads'))}
                             compactHeight={compactHeight}
                             compactWidth={compactWidth}
                             soldJobsByRequestId={soldJobsByRequestId}
@@ -1004,6 +1010,7 @@ function DispatchWallContent() {
                         <Text style={wallRefreshButtonTextStyle}>{refreshing ? 'Refreshing...' : DISPATCH_WALL_MANUAL_REFRESH_LABEL}</Text>
                     </Pressable>
                 )}
+                {!!intakeError && <Text style={wallHintTextStyle}>{intakeError}</Text>}
                 {!!fullscreenMessage && <Text style={wallHintTextStyle}>{fullscreenMessage}</Text>}
                 {!!message && (companyAccess || demoMode) && <Text style={wallHintTextStyle}>{message}</Text>}
             </View>
@@ -1145,6 +1152,7 @@ function DispatchWallOpeningState() {
 }
 
 function DispatchWallSection({
+    pendingCalls = [],
     config,
     items,
     soldJobsByRequestId,
@@ -1156,6 +1164,7 @@ function DispatchWallSection({
     onOpenDetail,
 }: {
     config: WallSectionConfig;
+    pendingCalls?: CustomerIntake[];
     items: DispatchWallItem[];
     soldJobsByRequestId: Record<string, SoldJobRecord>;
     flashingSoldRequestIds: Record<string, boolean>;
@@ -1216,7 +1225,7 @@ function DispatchWallSection({
                             sectionCountTextStyle,
                             compactWidth ? sectionCountTextCompactStyle : null,
                             { color: config.badgeTextColor },
-                        ]}>{items.length}</Text>
+                        ]}>{items.length + pendingCalls.length}</Text>
                     </View>
                 </View>
                 <View style={[
@@ -1237,6 +1246,7 @@ function DispatchWallSection({
                     </Pressable>
                 </View>
             </View>
+            {pendingCalls.length > 0 && <ScrollView style={{ maxHeight: 220 }} contentContainerStyle={{ gap: 8, padding: 6 }}>{pendingCalls.map(call => <PendingCallCard key={call.id} call={call} compact />)}</ScrollView>}
             <View style={sectionCardsStyle}>
                 {previewSlots.map((item, index) => (
                     <View key={item?.request.id || `${config.key}-blank-${index}`} style={sectionCardSlotStyle}>

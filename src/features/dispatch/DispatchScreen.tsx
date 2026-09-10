@@ -1,3 +1,4 @@
+import CompanyCallIntakeQueue from '../../components/serviceRequests/CompanyCallIntakeQueue';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
@@ -1625,6 +1626,7 @@ export default function DispatchBoardScreen() {
                     </ThemedCard>
                 )}
 
+                {!!dispatchCompanyId && <CompanyCallIntakeQueue companyId={dispatchCompanyId} />}
                 {!!dispatchCompanyId && (
                     <DispatchClockCorrectionReview
                         companyId={dispatchCompanyId}

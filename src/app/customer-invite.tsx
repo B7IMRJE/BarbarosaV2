@@ -1,3 +1,5 @@
+import CustomerIntakeStart from '../components/serviceRequests/CustomerIntakeStart';
+import { loadCustomerIntake, type CustomerIntake } from '../lib/customerCallIntake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
@@ -57,6 +59,7 @@ export default function CustomerInviteScreen() {
     const paramsReady = useHydratedRouteParamsReady();
     const connecting = useRef(false);
     const inviteCode = useMemo(() => firstParam(params.code).trim(), [params.code]);
+    const [callIntake, setCallIntake] = useState<CustomerIntake | null>(null);
     const [user, setUser] = useState<SessionUser | null>(null);
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
     const [homes, setHomes] = useState<HomeOption[]>([]);
@@ -140,6 +143,21 @@ export default function CustomerInviteScreen() {
         }
 
         setInvite(loadedInvite);
+        if (currentUser && !isWrongSignedInEmail(currentUser.email, loadedInvite.invited_email)) {
+            try {
+                const intake = await loadCustomerIntake({ inviteCode });
+                if (intake && intake.service_reason !== 'setup') {
+                    setCallIntake(intake);
+                    setLoading(false);
+                    return;
+                }
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not load the service invitation.');
+                setLoading(false);
+                return;
+            }
+        }
+
 
         if (isInactiveInvite(loadedInvite)) {
             clearPendingCompanyInviteState({ inviteCode });
@@ -311,6 +329,8 @@ export default function CustomerInviteScreen() {
             params: buildAuthParams(nextPath, invite?.invited_email, invite?.invited_phone),
         } as never);
     }
+
+    if (callIntake) return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ flex: 1, backgroundColor: theme.colors.background }} contentContainerStyle={{ padding: 20, alignItems: 'center' }}><View style={{ width: '100%', maxWidth: 800 }}><CustomerIntakeStart key={callIntake.id} initialIntake={callIntake} /></View></ScrollView>;
 
     return (
         <ScrollView

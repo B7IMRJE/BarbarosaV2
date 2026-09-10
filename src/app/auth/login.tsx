@@ -1,3 +1,4 @@
+import { loadCustomerIntake } from '../../lib/customerCallIntake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -57,9 +58,8 @@ export default function LoginScreen() {
     const invitedEmail = normalizeEmail(firstParam(params.email));
     const [email, setEmail] = useState(invitedEmail);
     const [password, setPassword] = useState('');
-    const [invitationCode, setInvitationCode] = useState(
-        String(firstParam(params.invitationCode) || '').replace(/\D/g, '').slice(0, 6)
-    );
+    const [invitationCode, setInvitationCode] = useState('');
+    const [showNormalLogin, setShowNormalLogin] = useState(true);
     const [loading, setLoading] = useState(false);
     const [invitationLoading, setInvitationLoading] = useState(false);
     const [resending, setResending] = useState(false);
@@ -77,6 +77,11 @@ export default function LoginScreen() {
         replacePendingCompanyInviteFromNextPath(confirmNextRoute, invitedEmail);
         setUnconfirmedEmail('');
     }, [confirmNextRoute, invitedEmail]);
+
+    useEffect(() => {
+        const linkedCode = String(firstParam(params.invitationCode) || '').replace(/\D/g, '').slice(0, 6);
+        if (linkedCode) { setInvitationCode(linkedCode); setShowNormalLogin(false); }
+    }, [params.invitationCode]);
 
     async function handleLogin() {
         if (!email.trim() || !password) {
@@ -270,6 +275,15 @@ export default function LoginScreen() {
                 // The authenticated password-setup route remains safe even when optional local storage is unavailable.
             }
 
+            if (nextRoute.startsWith('/customer-invite?')) {
+                const code = new URL(nextRoute, 'https://app.local').searchParams.get('code');
+                const intake = code ? await loadCustomerIntake({ inviteCode: code }) : null;
+                if (intake && intake.service_reason !== 'setup') {
+                    router.replace(nextRoute as never);
+                    return;
+                }
+            }
+
             router.replace({
                 pathname: '/profile/change-password',
                 params: { first: '1', next: nextRoute },
@@ -289,13 +303,14 @@ export default function LoginScreen() {
         >
             <View style={{ width: '100%', maxWidth: 500, marginTop: 60 }}>
                 <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
-                    {SHARED_LOGIN_HEADING}
+                    {showNormalLogin ? SHARED_LOGIN_HEADING : 'Your HomeOS invitation'}
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    {SHARED_LOGIN_SUPPORTING_TEXT}
+                    {showNormalLogin ? SHARED_LOGIN_SUPPORTING_TEXT : 'Open your invitation and continue in the browser. No app download needed.'}
                 </Text>
 
+                {showNormalLogin && <>
                 <TextInput
                     accessibilityLabel="Email address"
                     placeholder="Email"
@@ -350,6 +365,7 @@ export default function LoginScreen() {
                     <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
                 </View>
 
+                </>}
                 <TextInput
                     accessibilityLabel="Six-digit invitation code"
                     placeholder="Six-digit invitation code"
@@ -364,13 +380,14 @@ export default function LoginScreen() {
                 />
 
                 <ThemedButton
-                    title={invitationLoading ? 'Opening Invitation...' : 'Login with Invitation Code'}
+                    title={invitationLoading ? 'Opening Invitation...' : 'Open my invitation'}
                     variant="secondary"
                     onPress={handleInvitationCodeLogin}
                     disabled={loading || resending || invitationLoading}
                     style={buttonStyle}
                 />
 
+                {!showNormalLogin && <ThemedButton title="Sign in another way" variant="ghost" onPress={() => setShowNormalLogin(true)} />}
                 {!!message && (
                     <View
                         accessibilityLiveRegion="polite"

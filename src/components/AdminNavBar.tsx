@@ -300,7 +300,7 @@ export default function AdminNavBar({
                 )}
                 <NavButton
                     label="Home"
-                    onPress={() => router.replace('/' as Href)}
+                    onPress={() => router.replace(companyDashboardRoute ?? ('/' as Href))}
                     backgroundColor={theme.colors.surface}
                     borderColor={theme.colors.border}
                     textColor={theme.colors.text}

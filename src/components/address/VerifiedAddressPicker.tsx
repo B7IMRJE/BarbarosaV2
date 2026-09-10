@@ -26,16 +26,18 @@ const SEARCH_DEBOUNCE_MS = 400;
 type VerifiedAddressPickerProps = {
     disabled?: boolean;
     initialAddress?: VerifiedAddress | null;
+    initialSearchText?: string;
     onAddressConfirmed: (address: VerifiedAddress | null) => void;
 };
 
 export default function VerifiedAddressPicker({
     disabled = false,
     initialAddress = null,
+    initialSearchText = '',
     onAddressConfirmed,
 }: VerifiedAddressPickerProps) {
     const { theme } = useTheme();
-    const [searchText, setSearchText] = useState(formatSingleLineAddress(initialAddress));
+    const [searchText, setSearchText] = useState(formatSingleLineAddress(initialAddress) || initialSearchText);
     const [unit, setUnit] = useState(initialAddress?.addressLine2 || '');
     const [sessionToken, setSessionToken] = useState(createAddressSessionToken);
     const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
