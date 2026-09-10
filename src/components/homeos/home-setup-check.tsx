@@ -39,14 +39,20 @@ export default function HomeSetupCheck({ propertyId, onRecovered }: {
             <Text style={{ color: theme.colors.mutedText }}>Checking home setup…</Text></View>
             : <>
                 <Text selectable style={{ color: theme.colors.text, fontWeight: '900', fontSize: 18 }}>
-                    {error ? 'Home setup could not be checked' : `Finish setup for ${status?.home_name || 'this home'}`}
+                    {error ? 'Home setup could not be checked' : status?.needs_choice
+                        ? `Add home cards for ${status.home_name || 'this home'}`
+                        : `Finish setup for ${status?.home_name || 'this home'}`}
                 </Text>
                 <Text selectable style={{ color: theme.colors.mutedText, marginVertical: 10 }}>
                     {error || (status?.can_retry ? 'Your saved starter selection is waiting to finish. Retry without creating another home.'
-                        : 'Confirm the missing home details or choose starter areas. You can also choose to keep your current cards. Nothing has been replaced.')}
+                        : status?.starter_state === 'unselected'
+                            ? 'This home was created, but its starter areas still need to be chosen. Select the rooms and outdoor areas that exist in your home to create its Interior and Exterior cards. Your existing information stays saved.'
+                        : status?.needs_choice
+                            ? 'Choose starter areas for this home, or keep your current cards. Existing and archived cards will be preserved.'
+                            : 'Confirm the remaining home details to finish setup. Your current cards are saved.')}
                 </Text>
                 {error || status?.can_retry ? <ThemedButton title="Retry setup check" onPress={() => setRetry(n => n + 1)} />
-                    : status ? <ThemedButton title="Finish setup" onPress={() => router.push(homeSetupRoute(status.property_id) as never)} /> : null}
+                    : status ? <ThemedButton title={status.needs_choice ? 'Set up my home cards' : 'Finish setup'} onPress={() => router.push(homeSetupRoute(status.property_id) as never)} /> : null}
             </>}
     </ThemedCard>;
 }

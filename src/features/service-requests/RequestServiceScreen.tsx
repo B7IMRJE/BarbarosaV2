@@ -2,6 +2,7 @@ import ServiceRequestMediaGallery from '@/components/serviceRequests/ServiceRequ
 import ServiceRequestThread from '@/components/serviceRequests/ServiceRequestThread';
 import { loadCustomerIntake, saveCustomerIntake, submitCustomerIntake, intakeReasonLabel, type CustomerIntake } from '@/lib/customerCallIntake';
 import type { CreatedServiceRequestReceipt } from '@/lib/homeServiceRequests';
+import { homeDestinationAfterServiceRequest } from '@/lib/home-setup-integrity';
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '@/components/HomeHeader';
 import {
@@ -102,6 +103,8 @@ export default function RequestServiceScreen() {
     const [submitted, setSubmitted] = useState(false);
     const [locationDescription, setLocationDescription] = useState('');
     const [installHelp, setInstallHelp] = useState(false);
+    const [openingHome, setOpeningHome] = useState(false);
+    const openingHomeRef = useRef(false);
     const [draftSaved, setDraftSaved] = useState(false);
     const requestedPropertyId = firstParam(routeParams.propertyId);
     const requestedItemId = firstParam(routeParams.itemId);
@@ -664,13 +667,16 @@ export default function RequestServiceScreen() {
                 {submitted && createdRequest ? <ThemedCard style={{ gap: 14 }}>
                     <Text style={foundation.typography.containerTitle}>{formatServiceRequestReference(createdRequest)} sent</Text>
                     <Text style={foundation.typography.body}>The office has received your request. Keep this page for messages and updates. Sending a request does not confirm an arrival time.</Text>
+                    <ThemedButton title={openingHome ? 'Opening your home…' : 'Continue to HomeOS'} disabled={openingHome}
+                        onPress={() => void continueToHome()} />
+                    <Text style={foundation.typography.body}>{intake
+                        ? 'Next, finish any remaining home setup. Choose your rooms and outdoor areas to create your home cards, or finish later. Your request and photos are already sent.'
+                        : 'Your request and photos are saved. You can return here for messages and updates.'}</Text>
                     <ServiceRequestMediaGallery serviceRequestId={createdRequest.id} />
                     <ServiceRequestThread companyId={createdRequest.companyId} serviceRequestId={createdRequest.id} viewer="homeowner" title="Messages with your service team" />
                     {intake && <ThemedButton title="Set up my password" variant="secondary" onPress={() => router.push({ pathname: '/profile/change-password', params: { first: '1', next: `/request-service?propertyId=${propertyId}&intakeId=${intake.id}` } } as never)} />}
                     <ThemedButton title="Add HomeOS to this device (optional)" variant="secondary" onPress={() => setInstallHelp(value => !value)} />
                     {installHelp && <Text style={foundation.typography.body}>Use your browser menu to look for Install app or Add to Home Screen. You can also bookmark HomeOS and continue using it here.</Text>}
-                    <ThemedButton title="Continue to HomeOS" variant="secondary" onPress={() => router.replace('/' as never)} />
-                    <Text style={foundation.typography.body}>You can keep using your browser and finish your home setup later.</Text>
                 </ThemedCard> : null}
 
                 {!!message ? (
@@ -681,6 +687,24 @@ export default function RequestServiceScreen() {
             </View>
         </ScrollView>
     );
+
+    async function continueToHome() {
+        if (openingHomeRef.current || !createdRequest || !submitted) return;
+        openingHomeRef.current = true;
+        setOpeningHome(true);
+        setMessage('');
+        try {
+            const requestPropertyId = createdRequest.propertyId;
+            const destination = intake ? await homeDestinationAfterServiceRequest(requestPropertyId) : '/';
+            await selectActiveProperty(requestPropertyId);
+            router.replace(destination as never);
+        } catch (error) {
+            setMessage(`Your request is already sent. ${error instanceof Error ? error.message : 'Could not open your home.'} Please try Continue to HomeOS again.`);
+        } finally {
+            openingHomeRef.current = false;
+            setOpeningHome(false);
+        }
+    }
 }
 
 function findItemArea(items: RequestHomeItem[], item: RequestHomeItem) {

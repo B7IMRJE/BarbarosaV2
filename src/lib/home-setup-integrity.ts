@@ -1,7 +1,7 @@
 import { listActivePropertyMemberships, requireActivePropertyMembership } from './activeProperty';
 import { supabase } from './supabase';
 import {
-    createHomeSetupInspector, type HomeSetupScope, type HomeSetupStatus,
+    createHomeSetupInspector, homeSetupRoute, isHomeSetupComplete, type HomeSetupScope, type HomeSetupStatus,
 } from './home-setup-integrity-core';
 export * from './home-setup-integrity-core';
 
@@ -43,3 +43,14 @@ export const saveHomeSetupStory = (scope: HomeSetupScope, storyCount: string) =>
     'save_my_home_setup_story', { p_story_count: storyCount });
 export const chooseHomeSetup = (scope: HomeSetupScope, plan: unknown, keepEmpty = false) => setupRpc(scope,
     'choose_my_home_starter_setup', { p_plan: plan, p_keep_empty: keepEmpty });
+
+/** Service callers finish the request first, then resume this property's setup.
+ * A completed or intentionally empty deck must never be seeded again. */
+export async function homeDestinationAfterServiceRequest(propertyId: string) {
+    const { userId, memberships } = await listActivePropertyMemberships();
+    const membership = memberships.find(row => row.propertyId === propertyId);
+    if (!membership) throw new Error('Reopen the request from an account connected to this home.');
+    if (membership.membershipRole.toUpperCase() !== 'OWNER') return '/';
+    const status = await readHomeSetup({ userId, propertyId });
+    return isHomeSetupComplete(status) ? '/' : homeSetupRoute(propertyId);
+}

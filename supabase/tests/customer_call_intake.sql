@@ -4,7 +4,7 @@ declare owner_user uuid:=gen_random_uuid(); homeowner uuid:=gen_random_uuid(); o
  company uuid; other_company uuid; call jsonb; repeat_call jsonb; context jsonb; invitation_code text;
  intake uuid; first_home uuid; receipt jsonb; retry_receipt jsonb; setup_call jsonb;
  email text:='intake-'||homeowner::text||'@example.invalid'; denied boolean;
- handoff record; photo_id uuid:=gen_random_uuid(); inactive_user uuid;
+ handoff record; photo_id uuid:=gen_random_uuid(); inactive_user uuid; home_card_count integer;
  home_input jsonb:=jsonb_build_object('p_name','Intake test home','p_address_line_1','100 Test Street','p_city','Riverside','p_state','CA','p_postal_code','92501','p_country_code','US','p_formatted_address','100 Test Street, Riverside, CA 92501','p_latitude',33.98,'p_longitude',-117.37,'p_google_place_id','intake-test-'||homeowner::text,'p_property_type','HOUSE');
 begin
  insert into auth.users(id,email,email_confirmed_at) values(owner_user,'owner-'||owner_user::text||'@example.invalid',now()),(homeowner,email,now()),(outsider,'outsider-'||outsider::text||'@example.invalid',now());
@@ -86,6 +86,26 @@ begin
  if not denied then raise exception 'A sealed phone link accepted a late upload'; end if;
  perform public.discard_my_service_request_phone_media(photo_id);
  perform public.finish_my_customer_intake(intake);
+ -- The short service path defers cards, then the same homeowner completes
+ -- the normal starter setup without making another property or service call.
+ context:=public.get_my_home_setup(first_home);
+ if context->>'starter_state'<>'unselected' or context->>'needs_choice'<>'true' then raise exception 'Service-created home lost its deferred starter selection'; end if;
+ perform public.save_my_home_setup_story(first_home,'1');
+ perform public.choose_my_home_starter_setup(first_home,'[
+   {"name":"Bathroom 1","system":"Plumbing","scope":"interior","items":[]},
+   {"name":"Front Yard","system":"Plumbing","scope":"exterior","items":[{"name":"Front Yard Hose Bibbs","system":"Exterior","category":"Fixture"}]},
+   {"name":"Back Yard","system":"Plumbing","scope":"exterior","items":[{"name":"Back Yard Hose Bibbs","system":"Exterior","category":"Fixture"}]}
+ ]'::jsonb,false);
+ context:=public.finish_my_home_starter_setup(first_home);
+ if context->>'starter_state'<>'complete' or context->>'completed_at' is null then raise exception 'Service home starter setup did not complete'; end if;
+ if not exists(select 1 from public.home_items where property_id=first_home and name='Bathroom 1' and category='Area' and area_scope='interior') then raise exception 'Interior starter area missing'; end if;
+ if (select count(*) from public.home_items where property_id=first_home and category='Area' and area_scope='exterior')<>2 then raise exception 'Exterior starter areas missing'; end if;
+ if not exists(select 1 from public.home_items where property_id=first_home and lower(category)<>'area') then raise exception 'Selected areas have no starter item cards'; end if;
+ select count(*) into home_card_count from public.home_items where property_id=first_home;
+ perform public.finish_my_home_starter_setup(first_home);
+ if (select count(*) from public.home_items where property_id=first_home)<>home_card_count then raise exception 'Repeated home setup duplicated cards'; end if;
+ context:=public.get_my_customer_intake(null,intake);
+ if context->>'service_request_id' is distinct from receipt->>'service_request_id' or context->>'media_completed_at' is null then raise exception 'Home setup changed the completed request'; end if;
  execute 'reset role';
  if (select count(*) from public.service_requests where company_id=company)<>1 then raise exception 'Expected exactly one request'; end if;
  if not exists(select 1 from public.service_requests where id=(receipt->>'service_request_id')::uuid and issue_summary like 'Warranty review requested:%') then raise exception 'Warranty reason lost'; end if;
