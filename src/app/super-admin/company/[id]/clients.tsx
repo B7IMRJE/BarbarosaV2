@@ -321,12 +321,13 @@ export default function CompanyClientsScreen() {
         const inviteDraft = inviteFormRef.current;
 
         if (!inviteDraft.invitedEmail.trim()) {
-            setInviteMessage('Add the customer email address to create a six-digit login invitation.');
+            setInviteMessage('No invitation was created. Add the customer email address.');
             return;
         }
 
         if (!inviteDraft.invitedName.trim() || !inviteDraft.invitedPhone.trim()) {
-            setInviteMessage('Add the customer name and phone number.');
+            const missing = [!inviteDraft.invitedName.trim() && 'customer name', !inviteDraft.invitedPhone.trim() && 'phone number'].filter(Boolean).join(' and ');
+            setInviteMessage(`No invitation was created. Add the ${missing}.`);
             return;
         }
         const invitePayload = buildCustomerInviteRpcPayload(companyId, inviteDraft);
@@ -429,6 +430,7 @@ export default function CompanyClientsScreen() {
 
         inviteFormRef.current = nextForm;
         setInviteForm(nextForm);
+        setLatestLoginInvite(null);
     }
 
     async function revokeCustomerInvite(invite: CustomerInvite) {
@@ -969,21 +971,21 @@ function InviteCustomerSection({
                     </View>
                     <View style={formGridStyle}>
                         <InviteInput
-                            label="Customer name"
+                            label="Customer name (required)"
                             value={form.invitedName}
-                            placeholder="Optional"
+                            placeholder="Enter the customer name"
                             onChangeText={(invitedName) => onChangeForm({ invitedName })}
                         />
                         <InviteInput
-                            label="Email"
+                            label="Email (required)"
                             value={form.invitedEmail}
                             placeholder="Required for the secure invitation"
                             onChangeText={(invitedEmail) => onChangeForm({ invitedEmail })}
                         />
                         <InviteInput
-                            label="Phone"
+                            label="Phone (required)"
                             value={form.invitedPhone}
-                            placeholder="Optional"
+                            placeholder="Enter the callback number"
                             keyboardType="phone-pad"
                             autoComplete="tel"
                             onChangeText={(invitedPhone) => onChangeForm({ invitedPhone })}
@@ -995,6 +997,11 @@ function InviteCustomerSection({
                             onChangeText={(note) => onChangeForm({ note })}
                         />
                     </View>
+                    <Text style={[bodyTextStyle, { color: glassPalette.text, marginTop: 16 }]}>
+                        {form.serviceReason === 'setup'
+                            ? 'This invitation opens home setup without creating a service call.'
+                            : `This invitation opens a ${form.urgency === 'emergency' ? 'service request marked Emergency' : 'regular service request'} with job details, photos and videos.`}
+                    </Text>
                     <View style={buttonRowStyle}>
                         <ThemedButton
                             title={creating ? 'Creating...' : 'Create Login Invitation'}
@@ -1020,6 +1027,9 @@ function InviteCustomerSection({
                         />
                     </View>
                     <View style={pendingListStyle}>
+                        <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>
+                            These invitations keep their original purpose. Changing the form above creates a new invitation; it does not change an existing link.
+                        </Text>
                         {invites.map((invite) => (
                             <CustomerInviteRow
                                 key={invite.invitation_id}
