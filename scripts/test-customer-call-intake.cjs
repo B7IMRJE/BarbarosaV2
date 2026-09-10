@@ -35,6 +35,8 @@ require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
  assert.equal(merged[0], saved, 'Polling must not turn an already saved phone photo back into a pending upload');
  assert.equal(merged[1], uploading, 'Polling must preserve an upload in progress');
  assert.equal(merged[2], arrived);
+ const captioned = phone.mergePhoneHandoffDrafts([{ ...arrived, caption: 'Leak behind shower valve' }], [{ ...arrived, caption: '' }]);
+ assert.equal(captioned[0].caption, 'Leak behind shower valve', 'Collecting phone uploads must preserve the customer caption');
  await phone.finishServiceRequestPhoneHandoff({ id: 'handoff' }, [saved, { localId: 'phone-3', storagePath: 'handoffs/handoff/token/source.jpg' }]);
  assert.deepEqual(removed, ['handoffs/handoff/token/source.jpg'], 'Finishing capture must never delete a request attachment');
  assert.equal(intake.intakeProgressLabel({ submitted_at: null, property_id: 'home' }), 'Address confirmed · awaiting request');

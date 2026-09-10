@@ -154,7 +154,9 @@ export function mergePhoneHandoffDrafts(existing: ServiceRequestMediaDraft[], in
     const byId = new Map(existing.map(item => [item.localId, item]));
     for (const item of incoming) {
         const previous = byId.get(item.localId);
-        byId.set(item.localId, previous && ['saved', 'uploading', 'removing'].includes(previous.status) ? previous : item);
+        byId.set(item.localId, previous && ['saved', 'uploading', 'removing'].includes(previous.status)
+            ? previous
+            : previous ? { ...item, caption: previous.caption } : item);
     }
     return Array.from(byId.values());
 }
