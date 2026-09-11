@@ -27,6 +27,7 @@ import {
 import { getSystemDefaults, normalizeAreaName } from '../../lib/systemDefaults';
 import {
     providerModeItemPath,
+    providerModePath,
     providerModeQueryParams,
     readProviderModeParams,
 } from '../../lib/providerMode';
@@ -646,10 +647,11 @@ export default function CreateItemScreen() {
         }
 
         if (isContainerMode && hasAreaContext) {
-            router.dismissTo(propertyAreaRoutePath({
+            const areaPath = propertyAreaRoutePath({
                 areaName: initialArea,
                 parentAreaName: initialParentArea,
-            }) as any);
+            });
+            router.dismissTo((providerModeContext ? providerModePath(areaPath, providerModeContext) : areaPath) as any);
             return;
         }
 
