@@ -60,7 +60,7 @@ const HOME_OS_FIXTURE_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
     semanticVisual('kitchen-sink', ['kitchen sink'], bundledAsset('kitchen-sink', () => require('../../../assets/homeos/fixtures/kitchen-sink.png'))),
     semanticVisual('kitchen-faucet', ['kitchen faucet'], bundledAsset('kitchen-faucet', () => require('../../../assets/homeos/fixtures/kitchen-faucet.png'))),
     semanticVisual('ro-faucet', ['ro faucet', 'reverse osmosis faucet'], bundledAsset('ro-faucet', () => require('../../../assets/homeos/fixtures/ro-faucet.png'))),
-    semanticVisual('garage-hose-bibb', ['garage hose bibb', 'garage hose bib', 'hose bibb', 'hose bib'], bundledAsset('garage-hose-bibb', () => require('../../../assets/homeos/fixtures/garage-hose-bibb.png'))),
+    semanticVisual('garage-hose-bibb', ['garage hose bibb', 'garage hose bib', 'hose bibbs', 'hose bibs', 'hose bibb', 'hose bib'], bundledAsset('garage-hose-bibb', () => require('../../../assets/homeos/fixtures/garage-hose-bibb.png'))),
     semanticVisual('washer-drain-standpipe', ['washer drain standpipe', 'washer drain', 'laundry standpipe'], bundledAsset('washer-drain-standpipe', () => require('../../../assets/homeos/fixtures/washer-drain-standpipe.png'))),
     semanticVisual('double-vanity', ['double vanity', 'dual vanity', 'two sink vanity'], bundledAsset('double-vanity', () => require('../../../assets/homeos/fixtures/double-vanity.png'))),
     semanticVisual('bidet', ['bidet fixture', 'bidet'], bundledAsset('bidet', () => require('../../../assets/homeos/fixtures/bidet.png'))),
@@ -86,6 +86,19 @@ const HOME_OS_PLUMBING_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule
 ];
 
 const HOME_OS_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    semanticVisual('hose-bibb-vacuum-breaker', ['hose bibb with vacuum breaker', 'hose bib with vacuum breaker', 'hose bibb vacuum breaker combination', 'outdoor faucet with vacuum breaker'], bundledAsset('hose-bibb-vacuum-breaker', () => require('../../../assets/homeos/outdoor/hose-bibb-vacuum-breaker.png'))),
+    semanticVisual('vacuum-breaker', ['vacuum breaker', 'hose connection vacuum breaker', 'hose bibb vacuum breaker', 'screw on vacuum breaker'], bundledAsset('vacuum-breaker', () => require('../../../assets/homeos/outdoor/vacuum-breaker.png'))),
+    semanticVisual('pressure-regulator', ['water pressure regulator', 'pressure regulator', 'pressure reducing valve', 'prv'], bundledAsset('pressure-regulator', () => require('../../../assets/homeos/outdoor/pressure-regulator.png'))),
+    semanticVisual('water-meter', ['water meter'], bundledAsset('water-meter', () => require('../../../assets/homeos/outdoor/water-meter.png'))),
+    semanticVisual('backflow-preventer', ['irrigation backflow preventer', 'backflow preventer', 'pressure vacuum breaker', 'irrigation vacuum breaker', 'pvb'], bundledAsset('backflow-preventer', () => require('../../../assets/homeos/outdoor/backflow-preventer.png'))),
+    semanticVisual('irrigation-shutoff', ['irrigation shutoff', 'irrigation isolation valve', 'sprinkler shutoff valve'], bundledAsset('irrigation-shutoff', () => require('../../../assets/homeos/equipment/main-water-shutoff.png'))),
+    semanticVisual('irrigation-valve-box', ['irrigation valve box', 'sprinkler valve box', 'valve box'], bundledAsset('irrigation-valve-box', () => require('../../../assets/homeos/outdoor/irrigation-valve-box.png'))),
+    semanticVisual('irrigation-zone-valve', ['irrigation zone valve', 'sprinkler valve', 'irrigation solenoid valve'], bundledAsset('irrigation-zone-valve', () => require('../../../assets/homeos/outdoor/irrigation-zone-valve.png'))),
+    semanticVisual('irrigation-controller', ['irrigation controller', 'sprinkler timer', 'irrigation timer', 'irrigation system', 'irrigation front yard', 'irrigation back yard', 'front yard irrigation', 'back yard irrigation', 'irrigation supply'], bundledAsset('irrigation-controller', () => require('../../../assets/homeos/outdoor/irrigation-controller.png'))),
+    semanticVisual('sprinkler-head', ['sprinkler head', 'pop up sprinkler', 'lawn sprinkler'], bundledAsset('sprinkler-head', () => require('../../../assets/homeos/outdoor/sprinkler-head.png'))),
+    semanticVisual('drip-irrigation', ['drip irrigation', 'drip line', 'drip tubing', 'drip emitter'], bundledAsset('drip-irrigation', () => require('../../../assets/homeos/outdoor/drip-irrigation.png'))),
+    semanticVisual('water-softener', ['water softener', 'softener system'], bundledAsset('water-softener', () => require('../../../assets/homeos/outdoor/water-softener.png'))),
+    semanticVisual('main-cleanout', ['main cleanout', 'sewer cleanout', 'main sewer cleanout'], bundledAsset('main-cleanout', () => require('../../../assets/homeos/outdoor/main-cleanout.png'))),
     ...HOME_OS_FIXTURE_VISUAL_RULES,
     ...HOME_OS_PLUMBING_EQUIPMENT_VISUAL_RULES,
     semanticVisual('angle-stop', [

@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import OutdoorCardChoices from '../../components/homeos/OutdoorCardChoices';
 import {
     AreaContainer,
     EquipmentContainer,
@@ -262,22 +263,23 @@ export default function PropertyAreaDetailScreen() {
         } as never);
     }
 
-    function openAddContainer() {
+    function openAddContainer(card?: HomeOSStarterCardChoice) {
         if (!detailRouteIsCurrent || !currentArea) return;
 
         const route = buildPropertyAreaContainerCreateRoute({
             areaName: String(currentArea.name || '').trim(),
             parentAreaName: currentArea.parent_area,
         });
+        const selectedRoute = { ...route, params: { ...route.params, ...(card ? { templateKey: card.templateKey } : {}) } };
 
         router.push(providerModeContext ? {
-            ...route,
+            ...selectedRoute,
             params: {
-                ...route.params,
+                ...selectedRoute.params,
                 ...providerModeQueryParams(providerModeContext),
                 areaReturnTo: providerModePath(route.params.areaReturnTo, providerModeContext),
             },
-        } as never : route as never);
+        } as never : selectedRoute as never);
     }
 
     const routeStatusMessage = currentAreaResolution.status === 'recovered'
@@ -335,7 +337,7 @@ export default function PropertyAreaDetailScreen() {
                     title="Add Container"
                     accessibilityLabel={`Add a container to ${areaName || 'this area'}`}
                     disabled={!routeParamsReady || !areaName || !detailRouteIsCurrent}
-                    onPress={openAddContainer}
+                    onPress={() => openAddContainer()}
                     style={{ alignSelf: 'flex-start' }}
                 />
 
@@ -422,6 +424,14 @@ export default function PropertyAreaDetailScreen() {
                                 No containers are currently stored in this area.
                             </Text>
                         )}
+                        <OutdoorCardChoices
+                            cards={starterCards}
+                            items={containerItems}
+                            areaName={areaName}
+                            parentAreaName={parentAreaName}
+                            cardWidth={cardWidth}
+                            onChoose={openAddContainer}
+                        />
                     </>
                 ) : null}
 

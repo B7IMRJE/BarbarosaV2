@@ -2,6 +2,9 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
+import OutdoorCardChoices from '../../../../components/homeos/OutdoorCardChoices';
+import { loadHomeOSStarterCardChoices, type HomeOSStarterCardChoice } from '../../../../lib/homeosStarterCatalog';
+import { isOutdoorCardArea } from '../../../../lib/outdoorHomeCards';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import {
@@ -126,6 +129,8 @@ export default function AreaScreen() {
     const [productReferenceItem, setProductReferenceItem] = useState<AreaHomeItem | null>(null);
     const [message, setMessage] = useState('');
     const [tradeContext, setTradeContext] = useState<HomeOSTradeContext | null>(null);
+    const [outdoorCards, setOutdoorCards] = useState<HomeOSStarterCardChoice[]>([]);
+    const [outdoorRecordedItems, setOutdoorRecordedItems] = useState<AreaHomeItem[]>([]);
     const [tradeMessage, setTradeMessage] = useState('');
     const [startingRepipe, setStartingRepipe] = useState(false);
     const gridGap = scaleIcon(12);
@@ -229,6 +234,7 @@ export default function AreaScreen() {
             });
         } catch (error) {
             setItems([]);
+            setOutdoorCards([]);
             setChildAreas([]);
             setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
@@ -252,17 +258,26 @@ export default function AreaScreen() {
         let loadedTradeContext: HomeOSTradeContext | null = null;
 
         try {
-            loadedTradeContext = await loadHomeOSTradeContext({
+            const context = {
                 companyId: providerModeContext?.companyId,
                 propertyId: activeProperty.propertyId,
                 serviceRequestId: providerModeContext?.serviceRequestId,
                 scheduleSlotId: providerModeContext?.scheduleSlotId,
                 jobId: providerModeContext?.jobId,
-            });
+            };
+            const [trade, cards] = await Promise.all([
+                loadHomeOSTradeContext(context),
+                isOutdoorCardArea(areaName)
+                    ? loadHomeOSStarterCardChoices(context).catch(() => [] as HomeOSStarterCardChoice[])
+                    : Promise.resolve([] as HomeOSStarterCardChoice[]),
+            ]);
+            loadedTradeContext = trade;
+            setOutdoorCards(cards);
             setTradeContext(loadedTradeContext);
             setTradeMessage('');
         } catch (error) {
             setTradeContext(null);
+            setOutdoorCards([]);
             setTradeMessage(error instanceof Error ? error.message : 'Company trade access could not be confirmed.');
         }
 
@@ -337,6 +352,7 @@ export default function AreaScreen() {
             areaName,
             parentAreaName,
         });
+        setOutdoorRecordedItems(rows.filter((row) => !sameText(row.category, 'Area') && isChildOfAreaRecord(row, areaName, parentAreaName)));
         const savedChildAreas = visibleRows.childAreas;
         const broadZoneDefinition = getBroadZoneDefinition(areaName);
         const nextBroadZoneMode = !parentAreaName && (!!broadZoneDefinition || savedChildAreas.length > 0);
@@ -402,7 +418,7 @@ export default function AreaScreen() {
         } as any);
     }
 
-    function createSuggestedItem(category: string, name?: string, openDeckPicker = false) {
+    function createSuggestedItem(category: string, name?: string, openDeckPicker = false, templateKey?: string) {
         router.push({
             pathname: '/item/create',
             params: {
@@ -412,6 +428,7 @@ export default function AreaScreen() {
                 category,
                 name: name || '',
                 ...(openDeckPicker ? { deckPicker: 'true' } : {}),
+                ...(templateKey ? { templateKey } : {}),
                 ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
@@ -966,6 +983,17 @@ export default function AreaScreen() {
                             </View>
                         </View>
                     </>
+                )}
+
+                {!loading && !homeItemsQueryFailed && currentTradeEnabled && currentTradeKey === 'plumbing' && (
+                    <OutdoorCardChoices
+                        cards={outdoorCards}
+                        items={outdoorRecordedItems}
+                        areaName={areaName}
+                        parentAreaName={parentAreaName}
+                        cardWidth={gridCardWidth}
+                        onChoose={(card) => createSuggestedItem(card.category, card.name, true, card.templateKey)}
+                    />
                 )}
 
                 {!!message && (
