@@ -2745,6 +2745,8 @@ function DispatchRequestDetailScreen({
     onNotifyHomeownerDelay: () => void;
 }) {
     const { theme } = useTheme();
+    const { height: viewportHeight } = useWindowDimensions();
+    const desktopWorkspace = viewportWidth >= 1100 && viewportHeight >= 520;
     const detailBodyRef = useRef<ScrollView | null>(null);
     const requestId = request?.id || null;
 
@@ -2797,7 +2799,7 @@ function DispatchRequestDetailScreen({
                         <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>
                             Job Details · {identifier}
                         </Text>
-                        <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>
+                        <Text numberOfLines={desktopWorkspace ? 1 : undefined} style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>
                             {title}
                         </Text>
                     </View>
@@ -2807,7 +2809,8 @@ function DispatchRequestDetailScreen({
                     ref={detailBodyRef}
                     keyboardShouldPersistTaps="handled"
                     style={detailScreenScrollStyle}
-                    contentContainerStyle={detailScreenScrollContentStyle}
+                    scrollEnabled={!desktopWorkspace}
+                    contentContainerStyle={desktopWorkspace ? { flex: 1, minHeight: 0, padding: 12 } : detailScreenScrollContentStyle}
                 >
                     <DispatchRequestCard
                         request={request}
@@ -2816,6 +2819,7 @@ function DispatchRequestDetailScreen({
                         allScheduleSlots={allScheduleSlots}
                         acknowledging={actionRequestId === request.id}
                         expanded
+                        desktopWorkspace={desktopWorkspace}
                         cardBasis="100%"
                         expandedCardBasis="100%"
                         onToggle={onClose}
@@ -3132,6 +3136,7 @@ function DispatchRequestCard({
     allScheduleSlots,
     acknowledging,
     expanded,
+    desktopWorkspace = false,
     cardBasis,
     expandedCardBasis,
     onToggle,
@@ -3155,6 +3160,7 @@ function DispatchRequestCard({
     allScheduleSlots: ScheduleSlot[];
     acknowledging: boolean;
     expanded: boolean;
+    desktopWorkspace?: boolean;
     cardBasis: ViewStyle['flexBasis'];
     expandedCardBasis: ViewStyle['flexBasis'];
     onToggle: () => void;
@@ -3226,6 +3232,299 @@ function DispatchRequestCard({
         : risk.state !== 'ON_TIME' ? risk.label : operationalStatusLabel;
     const issueLine = request.issue_summary || 'No description provided.';
     const scheduleLine = `${formatSlotArrivalWindow(currentScheduleSlot)} · ${assignedTechnicianLabel}${emergencyAcceptancePending ? ' · Acceptance pending' : ''}`;
+
+    if (desktopWorkspace) {
+        return (
+            <View style={{ flex: 1, minHeight: 0 }} testID="dispatch-desktop-workspace">
+                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{statusBadgeLabel} · {priorityLabel}</Text>
+                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.mutedText, fontSize: 12 }}>{scheduleLine}</Text>
+                </View>
+
+                <View style={workspaceActionBarStyle}>
+                    {!request.converted_job_id && status === 'new' && <ThemedButton title="Acknowledge" disabled={acknowledging} onPress={() => onAcknowledge(request)} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />}
+                    <ThemedButton title={acknowledging ? 'Scheduling...' : 'Assign Tech / Schedule'} disabled={acknowledging} onPress={onScheduleRequest} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Close Visit" disabled={acknowledging || !scheduleForm.closeoutOutcome} onPress={onCloseVisit} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Notify Homeowner" variant="secondary" disabled={acknowledging || risk.state !== 'RUNNING_LATE'} onPress={onNotifyHomeownerDelay} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Open Customer" variant="secondary" onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}` as any)} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Open Client HomeOS" variant="secondary" onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}/homeos` as any)} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Cancel Request" variant="secondary" disabled={acknowledging} onPress={onCancelRequest} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    <ThemedButton title="Archive Request" variant="secondary" disabled={acknowledging || isArchivedDispatchStatus(request.status)} onPress={onArchiveRequest} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                    {isArchivedDispatchStatus(request.status) && <ThemedButton title="Restore Request" variant="secondary" disabled={acknowledging} onPress={onRestoreRequest} style={workspaceActionStyle} textStyle={{ fontSize: 12, lineHeight: 16 }} />}
+                </View>
+
+                {!!actionMessage && <Text accessibilityLiveRegion="polite" numberOfLines={2} style={{ color: theme.colors.primary, fontSize: 12, marginBottom: 6 }}>{actionMessage}</Text>}
+                <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', gap: 12 }}>
+                    <View style={[workspacePanelStyle, { flex: 0.85, borderColor: theme.colors.border }]}>
+                        <Text style={[workspaceHeadingStyle, { color: theme.colors.text }]}>Job information & messages</Text>
+                        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 10 }} style={{ flex: 1, minHeight: 0 }}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {request.issue_summary || 'No summary available.'}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Job code: {getWorkQueueIdentifier(request)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Status: {formatLabel(request.status)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Created: {formatDateTime(request.created_at)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Property: {formatPropertyAddress(request)}
+                    </Text>
+                    {!!request.access_instructions && (
+                        <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Property Access</Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                {request.access_instructions}
+                            </Text>
+                        </View>
+                    )}
+                    <ServiceRequestMediaGallery
+                        serviceRequestId={request.id}
+                        title="Photos & videos"
+                        compact
+                        thumbnailStrip
+                    />
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Scheduled: {formatScheduleStart(currentScheduleSlot)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Arrival window: {formatSlotArrivalWindow(currentScheduleSlot)}
+                    </Text>
+                    {!!currentScheduleSlot && (
+                        <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                            <View style={requestTopRowStyle}>
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>
+                                    {isActiveDispatchRequestForRisk(request, currentScheduleSlot) ? 'TechOS Status' : 'Visit Status'}
+                                </Text>
+                                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                                    {isActiveDispatchRequestForRisk(request, currentScheduleSlot)
+                                        ? emergencyAcceptancePending
+                                            ? 'Awaiting Tech Acceptance'
+                                            : formatTechOSStatusLabel(currentScheduleSlot.status)
+                                        : formatRequestOperationalStatus(request, currentScheduleSlot)}
+                                </Text>
+                            </View>
+                            {!!emergencyAcceptanceLabel && (
+                                <Text style={[metaTextStyle, { color: emergencyAcceptancePending ? theme.colors.danger : theme.colors.primary }]}>
+                                    {emergencyAcceptanceLabel}
+                                    {currentScheduleSlot.technician_acknowledged_at
+                                        ? ` · ${formatDateTime(currentScheduleSlot.technician_acknowledged_at)}`
+                                        : ` · Assigned to ${assignedTechnicianLabel}`}
+                                </Text>
+                            )}
+                            {!!currentScheduleSlot.visit_outcome && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                    Visit outcome: {getServiceVisitOutcomeLabel(currentScheduleSlot.visit_outcome)}
+                                </Text>
+                            )}
+                            {!!currentScheduleSlot.tech_status_note && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                    {currentScheduleSlot.tech_status_note}
+                                </Text>
+                            )}
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Updated: {formatDateTime(currentScheduleSlot.updated_at)}
+                            </Text>
+                        </View>
+                    )}
+                    {risk.state !== 'ON_TIME' && (
+                        <View style={[secondaryActionPanelStyle, { borderColor: getRiskBorderColor(risk.state, theme.colors.border) }]}>
+                            <Text style={[requestTypeStyle, { color: getRiskTextColor(risk.state, theme.colors.text) }]}>
+                                Delay Risk: {risk.label}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{risk.reason}</Text>
+                            {!!risk.estimatedArrivalAt && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Estimated arrival: {formatDateTime(risk.estimatedArrivalAt)}
+                                </Text>
+                            )}
+                            {risk.estimatedDelayMinutes !== null && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Estimated delay: {risk.estimatedDelayMinutes} min
+                                </Text>
+                            )}
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Suggested: {risk.suggestedActions.join(' / ')}
+                            </Text>
+                            {!!latestTimingResponse && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Tech timing: {formatTimingResponse(latestTimingResponse)}
+                                </Text>
+                            )}
+
+                        </View>
+                    )}
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Events: {events.length}
+                    </Text>
+                    {events.slice(0, 3).map((event) => (
+                        <Text key={event.id} style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                            {formatLabel(event.event_type)}: {event.message || 'No message.'}
+                        </Text>
+                    ))}
+                    <JobConversation
+                        companyId={request.company_id}
+                        serviceRequestId={request.id}
+                        scheduleSlotId={currentScheduleSlot?.id || null}
+                        title={`Job messages · ${assignedTechnicianLabel}`}
+                    />
+
+                        </ScrollView>
+                    </View>
+                    <View style={[workspacePanelStyle, { flex: 1.2, borderColor: theme.colors.border }]}>
+                        <Text style={[workspaceHeadingStyle, { color: theme.colors.text }]}>Schedule & assignment</Text>
+                        <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 10, gap: 10 }}>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <ScheduleDatePicker selectedDate={scheduleForm.date} calendarMonth={scheduleForm.calendarMonth} onSelectDate={(date) => onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) })} onChangeMonth={(calendarMonth) => onUpdateScheduleForm({ calendarMonth })} />
+                                <ScheduleTimeSelect value={scheduleForm.startTime} onSelect={(startTime) => onUpdateScheduleForm({ startTime })} />
+                            </View>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <ScheduleInput label="Duration (min)" value={scheduleForm.durationMode === 'custom' ? scheduleForm.durationMinutes : scheduleForm.durationMode} placeholder="Minutes" onChangeText={(durationMinutes) => onUpdateScheduleForm({ durationMode: 'custom', durationMinutes })} />
+                                <ScheduleInput label="Arrival window (hr)" value={scheduleForm.arrivalWindowMode === 'custom' ? scheduleForm.arrivalWindowHours : scheduleForm.arrivalWindowMode} placeholder="Hours" onChangeText={(arrivalWindowHours) => onUpdateScheduleForm({ arrivalWindowMode: 'custom', arrivalWindowHours })} />
+                            </View>
+                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Assign to: {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'select team member'}</Text>
+                            <View style={technicianPickerStyle}>
+                                <ThemedButton
+                                    title="Service Technician"
+                                    variant={effectiveAssigneeType === 'technician' ? 'primary' : 'secondary'}
+                                    onPress={() => onUpdateScheduleForm({
+                                        assigneeType: 'technician',
+                                        technicianCompanyUserId: '',
+                                        technicianSearch: '',
+                                    })}
+                                    style={[technicianButtonStyle, { flexBasis: '45%', minHeight: 36, paddingVertical: 6 }]}
+                                    textStyle={{ fontSize: 12, lineHeight: 16 }}
+                                />
+                                <ThemedButton
+                                    title="Sales Visit"
+                                    variant={effectiveAssigneeType === 'sales' ? 'primary' : 'secondary'}
+                                    onPress={() => onUpdateScheduleForm({
+                                        assigneeType: 'sales',
+                                        technicianCompanyUserId: '',
+                                        technicianSearch: '',
+                                    })}
+                                    style={[technicianButtonStyle, { flexBasis: '45%', minHeight: 36, paddingVertical: 6 }]}
+                                    textStyle={{ fontSize: 12, lineHeight: 16 }}
+                                />
+                            </View>
+
+                            {effectiveAssigneeType === 'sales' && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Sales Visit is explicit and server-validated. It opens assigned HomeOS, Catalog, estimate, and proposal tools without technician execution or closeout.
+                                </Text>
+                            )}
+                            <DictationTextInput
+                                value={scheduleForm.technicianSearch}
+                                onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
+                                placeholder={effectiveAssigneeType === 'sales' ? 'Search Sales Techs' : 'Search technicians'}
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[scheduleTextInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                            {activeAssignees.length === 0 ? (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {effectiveAssigneeType === 'sales'
+                                        ? 'No active Sales Techs found for this company.'
+                                        : 'No active technicians found for this company.'}
+                                </Text>
+                            ) : visibleTechnicians.length === 0 ? (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    No {effectiveAssigneeType === 'sales' ? 'Sales Techs' : 'technicians'} match that search.
+                                </Text>
+                            ) : (
+                                <ScrollView style={{ maxHeight: 88 }} contentContainerStyle={technicianPickerStyle} keyboardShouldPersistTaps="handled">
+                                    {visibleTechnicians.slice(0, 6).map((technician) => {
+                                        const selected = selectedTechnicianId === technician.id;
+
+                                        return (
+                                            <ThemedButton
+                                                key={technician.id}
+                                                title={getTechnicianAssignmentDisplayName(technician)}
+                                                variant={selected ? 'primary' : 'secondary'}
+                                                onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
+                                                style={[technicianButtonStyle, { flexBasis: '45%', minHeight: 36, paddingVertical: 6 }]}
+                                                textStyle={{ fontSize: 12, lineHeight: 16 }}
+                                            />
+                                        );
+                                    })}
+                                </ScrollView>
+                            )}
+                            <ScheduleInput label="Scheduling notes" value={scheduleForm.notes} placeholder="Optional" onChangeText={(notes) => onUpdateScheduleForm({ notes })} />
+                            <Text style={{ color: theme.colors.mutedText, fontSize: 12 }}>{arrivalWindowPreview} · {formatDurationSummary(durationMinutes)}</Text>
+                            <UnavailableDispatchMembers companyId={request.company_id} />
+                        </ScrollView>
+                    </View>
+                    <View style={[workspacePanelStyle, { flex: 1.15, borderColor: theme.colors.border }]}>
+                        <Text style={[workspaceHeadingStyle, { color: theme.colors.text }]}>Visit outcome & request actions</Text>
+                        <View style={{ paddingHorizontal: 10 }}>
+                        <View style={compactActionRowStyle}>
+                            {SERVICE_VISIT_CLOSEOUT_OPTIONS.map((option) => (
+                                <ThemedButton
+                                    key={option.outcome}
+                                    title={option.label}
+                                    variant={scheduleForm.closeoutOutcome === option.outcome ? 'primary' : 'secondary'}
+                                    disabled={acknowledging}
+                                    onPress={() => onUpdateScheduleForm({
+                                        closeoutOutcome: option.outcome,
+                                        closeoutNotifyHomeowner: option.homeownerDefault,
+                                    })}
+                                    style={[closeoutOutcomeButtonStyle, { flexBasis: '30%', minHeight: 36, paddingVertical: 6, paddingHorizontal: 6 }]}
+                                    textStyle={{ fontSize: 11, lineHeight: 14 }}
+                                />
+                            ))}
+                        </View>
+
+                            <ThemedButton title={scheduleForm.closeoutNotifyHomeowner ? 'Homeowner Update On' : 'Homeowner Update Off'} variant={scheduleForm.closeoutNotifyHomeowner ? 'primary' : 'secondary'} disabled={acknowledging} onPress={() => onUpdateScheduleForm({ closeoutNotifyHomeowner: !scheduleForm.closeoutNotifyHomeowner })} style={{ minHeight: 36, marginVertical: 8, paddingVertical: 6 }} textStyle={{ fontSize: 12, lineHeight: 16 }} />
+                        </View>
+                        <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ padding: 10, gap: 8 }}>
+                            {!!scheduleForm.closeoutOutcome && <Text style={{ color: theme.colors.mutedText, fontSize: 12 }}>{SERVICE_VISIT_CLOSEOUT_OPTIONS.find((option) => option.outcome === scheduleForm.closeoutOutcome)?.description}</Text>}
+                        <View style={scheduleFieldGridStyle}>
+                            <ScheduleInput
+                                label={getCloseoutNotesLabel(scheduleForm.closeoutOutcome)}
+                                value={scheduleForm.closeoutNotes}
+                                placeholder="Internal close-out notes"
+                                onChangeText={(closeoutNotes) => onUpdateScheduleForm({ closeoutNotes })}
+                            />
+                            <ScheduleInput
+                                label="Next Action Date"
+                                value={scheduleForm.closeoutNextActionDate}
+                                placeholder="YYYY-MM-DD when needed"
+                                onChangeText={(closeoutNextActionDate) => onUpdateScheduleForm({ closeoutNextActionDate })}
+                            />
+                            {scheduleForm.closeoutOutcome === 'waiting_for_parts' && (
+                                <>
+                                    <ScheduleInput
+                                        label="Parts / Materials"
+                                        value={scheduleForm.closeoutPartsDescription}
+                                        placeholder="Part, quantity, vendor note"
+                                        onChangeText={(closeoutPartsDescription) => onUpdateScheduleForm({ closeoutPartsDescription })}
+                                    />
+                                    <ScheduleInput
+                                        label="Order / Reference"
+                                        value={scheduleForm.closeoutOrderReference}
+                                        placeholder="Optional order number"
+                                        onChangeText={(closeoutOrderReference) => onUpdateScheduleForm({ closeoutOrderReference })}
+                                    />
+                                </>
+                            )}
+                            <ScheduleInput
+                                label="Homeowner Message"
+                                value={scheduleForm.closeoutHomeownerNote}
+                                placeholder="Optional customer-safe note"
+                                onChangeText={(closeoutHomeownerNote) => onUpdateScheduleForm({ closeoutHomeownerNote })}
+                            />
+                        </View>
+
+                            <ScheduleInput label="Cancel reason" value={scheduleForm.cancelReason} placeholder="Optional" onChangeText={(cancelReason) => onUpdateScheduleForm({ cancelReason })} />
+                            <ScheduleInput label="Archive reason" value={scheduleForm.archiveReason} placeholder="Optional" onChangeText={(archiveReason) => onUpdateScheduleForm({ archiveReason })} />
+                        </ScrollView>
+                    </View>
+                </View>
+            </View>
+        );
+    }
 
     return (
         <ThemedCard
@@ -3349,7 +3648,9 @@ function DispatchRequestCard({
                     )}
                     <ServiceRequestMediaGallery
                         serviceRequestId={request.id}
-                        title="Request photos and videos"
+                        title="Photos & videos"
+                        compact
+                        thumbnailStrip
                     />
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Scheduled: {formatScheduleStart(currentScheduleSlot)}
@@ -6895,3 +7196,30 @@ const soldCelebrationScopeStyle = {
     lineHeight: 20,
     textAlign: 'center',
 } as const;
+
+const workspaceActionBarStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    paddingVertical: 10,
+};
+const workspaceActionStyle = {
+    flexGrow: 1,
+    flexBasis: 120,
+    maxWidth: 180,
+    minHeight: 38,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+};
+const workspacePanelStyle = {
+    minWidth: 0,
+    minHeight: 0,
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: 'hidden' as const,
+};
+const workspaceHeadingStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    padding: 10,
+};
