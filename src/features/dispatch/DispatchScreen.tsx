@@ -3,7 +3,8 @@ import UnavailableDispatchMembers from '../../components/serviceRequests/Unavail
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Alert, Animated, AppState, Easing, Modal, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminNavBar from '../../components/AdminNavBar';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -1733,7 +1734,7 @@ export default function DispatchBoardScreen() {
                                 open={closedArchivedOpen}
                                 onToggleOpen={() => setClosedArchivedOpen((current) => !current)}
                             />
-                            <DispatchRequestDetailDrawer
+                            <DispatchRequestDetailScreen
                                 request={selectedDetailRequest}
                                 events={selectedDetailRequest ? eventsByRequestId[selectedDetailRequest.id] || [] : []}
                                 scheduleSlots={selectedDetailRequest
@@ -2702,7 +2703,7 @@ function ClosedArchiveCard({
     );
 }
 
-function DispatchRequestDetailDrawer({
+function DispatchRequestDetailScreen({
     request,
     events,
     scheduleSlots,
@@ -2769,112 +2770,71 @@ function DispatchRequestDetailDrawer({
     const title = request.customer_display_name || request.property_display_name || request.issue_summary || 'Job details';
 
     return (
-        <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-            <View style={detailDrawerBackdropStyle}>
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close job details backdrop"
-                    onPress={onClose}
-                    style={detailDrawerBackdropPressableStyle}
-                />
-                <View
-                    style={[
-                        detailDrawerPanelStyle,
-                        isNarrow ? detailDrawerPanelMobileStyle : null,
-                        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                    ]}
-                >
-                    <View style={[detailDrawerHeaderStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
-                        {isNarrow ? (
-                            <>
-                                <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Close job details"
-                                    onPress={onClose}
-                                    style={({ pressed }) => [
-                                        detailDrawerCloseButtonStyle,
-                                        {
-                                            borderColor: theme.colors.border,
-                                            backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
-                                        },
-                                    ]}
-                                >
-                                    <Text style={[detailDrawerCloseButtonTextStyle, { color: theme.colors.primaryText }]}>
-                                        ← Close
-                                    </Text>
-                                </Pressable>
-                                <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]} numberOfLines={1}>
-                                        {identifier}
-                                    </Text>
-                                    <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
-                                        {title}
-                                    </Text>
-                                </View>
-                            </>
-                        ) : (
-                            <>
-                                <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]} numberOfLines={1}>
-                                        Job Details · {identifier}
-                                    </Text>
-                                    <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
-                                        {title}
-                                    </Text>
-                                </View>
-                                <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Close job details"
-                                    onPress={onClose}
-                                    style={({ pressed }) => [
-                                        detailDrawerCloseButtonStyle,
-                                        {
-                                            borderColor: theme.colors.border,
-                                            backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
-                                        },
-                                    ]}
-                                >
-                                    <Text style={[detailDrawerCloseButtonTextStyle, { color: theme.colors.primaryText }]}>
-                                        ✕ Close
-                                    </Text>
-                                </Pressable>
-                            </>
-                        )}
-                    </View>
-                    <ScrollView
-                        key={`dispatch-detail-body-${request.id}`}
-                        ref={detailBodyRef}
-                        showsVerticalScrollIndicator={false}
-                        style={detailDrawerScrollStyle}
-                        contentContainerStyle={detailDrawerScrollContentStyle}
+        <Modal visible presentationStyle="fullScreen" animationType="fade" onRequestClose={onClose}>
+            <SafeAreaView style={[detailScreenStyle, { backgroundColor: theme.colors.surface }]}>
+                <View style={[
+                    detailScreenHeaderStyle,
+                    isNarrow ? { flexDirection: 'column', alignItems: 'stretch' } : null,
+                    { borderColor: theme.colors.border },
+                ]}>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Back to Dispatch"
+                        onPress={onClose}
+                        style={({ pressed }) => [
+                            detailScreenBackButtonStyle,
+                            {
+                                borderColor: theme.colors.border,
+                                backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
+                            },
+                        ]}
                     >
-                        <DispatchRequestCard
-                            request={request}
-                            events={events}
-                            scheduleSlots={scheduleSlots}
-                            allScheduleSlots={allScheduleSlots}
-                            acknowledging={actionRequestId === request.id}
-                            expanded
-                            cardBasis="100%"
-                            expandedCardBasis="100%"
-                            onToggle={onClose}
-                            onCollapse={onClose}
-                            onAcknowledge={onAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleForm={scheduleForm}
-                            actionMessage={actionMessage}
-                            onUpdateScheduleForm={onUpdateScheduleForm}
-                            onScheduleRequest={onScheduleRequest}
-                            onCloseVisit={onCloseVisit}
-                            onCancelRequest={onCancelRequest}
-                            onArchiveRequest={onArchiveRequest}
-                            onRestoreRequest={onRestoreRequest}
-                            onNotifyHomeownerDelay={onNotifyHomeownerDelay}
-                        />
-                    </ScrollView>
+                        <Text style={[detailScreenBackButtonTextStyle, { color: theme.colors.primaryText }]}>
+                            ← Back to Dispatch
+                        </Text>
+                    </Pressable>
+                    <View style={{ flexShrink: 1, minWidth: 0 }}>
+                        <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>
+                            Job Details · {identifier}
+                        </Text>
+                        <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>
+                            {title}
+                        </Text>
+                    </View>
                 </View>
-            </View>
+                <ScrollView
+                    key={`dispatch-detail-body-${request.id}`}
+                    ref={detailBodyRef}
+                    keyboardShouldPersistTaps="handled"
+                    style={detailScreenScrollStyle}
+                    contentContainerStyle={detailScreenScrollContentStyle}
+                >
+                    <DispatchRequestCard
+                        request={request}
+                        events={events}
+                        scheduleSlots={scheduleSlots}
+                        allScheduleSlots={allScheduleSlots}
+                        acknowledging={actionRequestId === request.id}
+                        expanded
+                        cardBasis="100%"
+                        expandedCardBasis="100%"
+                        onToggle={onClose}
+                        onCollapse={onClose}
+                        onAcknowledge={onAcknowledge}
+                        companyUsers={companyUsers}
+                        activeTechnicians={activeTechnicians}
+                        scheduleForm={scheduleForm}
+                        actionMessage={actionMessage}
+                        onUpdateScheduleForm={onUpdateScheduleForm}
+                        onScheduleRequest={onScheduleRequest}
+                        onCloseVisit={onCloseVisit}
+                        onCancelRequest={onCancelRequest}
+                        onArchiveRequest={onArchiveRequest}
+                        onRestoreRequest={onRestoreRequest}
+                        onNotifyHomeownerDelay={onNotifyHomeownerDelay}
+                    />
+                </ScrollView>
+            </SafeAreaView>
         </Modal>
     );
 }
@@ -3303,7 +3263,7 @@ function DispatchRequestCard({
                 </View>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={expanded ? 'Collapse request details' : 'Open request details'}
+                    accessibilityLabel={expanded ? 'Back to Dispatch' : 'Open request details'}
                     onPress={expanded ? onCollapse : onToggle}
                     style={({ pressed }) => [
                         compactExpandButtonStyle,
@@ -3315,7 +3275,7 @@ function DispatchRequestCard({
                     ]}
                 >
                     <Text style={[compactActiveButtonTextStyle, { color: theme.colors.secondaryButtonText }]}>
-                        {expanded ? 'Collapse' : 'Open'}
+                        {expanded ? 'Back to Dispatch' : 'Open'}
                     </Text>
                 </Pressable>
             </View>
@@ -3364,13 +3324,6 @@ function DispatchRequestCard({
 
             {expanded && (
                 <View style={expandedDetailStyle}>
-                    <ThemedButton
-                        title="Collapse"
-                        variant="ghost"
-                        onPress={onCollapse}
-                        style={{ alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12 }}
-                        textStyle={{ fontSize: 12 }}
-                    />
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         {request.issue_summary || 'No summary available.'}
                     </Text>
@@ -6444,93 +6397,43 @@ const workQueueEmptyStyle = {
     padding: 14,
 };
 
-const detailDrawerBackdropStyle = {
-    alignItems: 'flex-end' as const,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+const detailScreenStyle = {
     flex: 1,
-    justifyContent: 'center' as const,
-    padding: Platform.OS === 'web' ? 16 : 12,
-    position: Platform.OS === 'web' ? ('fixed' as ViewStyle['position']) : ('absolute' as const),
-    bottom: 0,
-    left: 0,
-    right: 0,
-    top: 0,
-    zIndex: 1000,
 };
 
-const detailDrawerBackdropPressableStyle = {
-    bottom: 0,
-    left: 0,
-    position: 'absolute' as const,
-    right: 0,
-    top: 0,
-    zIndex: 1000,
-};
-
-const detailDrawerPanelStyle = {
-    borderRadius: 18,
-    borderWidth: 1,
-    elevation: 14,
-    height: Platform.OS === 'web' ? ('calc(100vh - 32px)' as ViewStyle['height']) : ('100%' as const),
-    maxHeight: Platform.OS === 'web' ? ('calc(100vh - 32px)' as ViewStyle['maxHeight']) : ('100%' as const),
-    maxWidth: 680,
-    minWidth: 420,
-    overflow: 'hidden' as const,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.24,
-    shadowRadius: 26,
-    width: '42%' as const,
-    zIndex: 1001,
-};
-
-const detailDrawerPanelMobileStyle = {
-    borderRadius: Platform.OS === 'web' ? 14 : 0,
-    height: Platform.OS === 'web' ? ('calc(100vh - 24px)' as ViewStyle['height']) : ('100%' as const),
-    maxHeight: Platform.OS === 'web' ? ('calc(100vh - 24px)' as ViewStyle['maxHeight']) : ('100%' as const),
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    width: '100%' as const,
-};
-
-const detailDrawerHeaderStyle = {
+const detailScreenHeaderStyle = {
     alignItems: 'center' as const,
     borderBottomWidth: 1,
-    elevation: 8,
     flexDirection: 'row' as const,
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    zIndex: 1002,
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
 };
 
-const detailDrawerCloseButtonStyle = {
+const detailScreenBackButtonStyle = {
     alignItems: 'center' as const,
-    borderRadius: 999,
+    alignSelf: 'flex-start' as const,
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: 'center' as const,
     minHeight: 44,
-    minWidth: 96,
     paddingHorizontal: 16,
     paddingVertical: 10,
 };
 
-const detailDrawerCloseButtonTextStyle = {
+const detailScreenBackButtonTextStyle = {
     fontSize: 14,
     fontWeight: '900' as const,
 };
 
-const detailDrawerScrollStyle = {
+const detailScreenScrollStyle = {
     flex: 1,
+    minHeight: 0,
 };
 
-const detailDrawerScrollContentStyle = {
-    padding: 12,
-    paddingBottom: 96,
+const detailScreenScrollContentStyle = {
+    padding: 20,
+    paddingBottom: 48,
 };
 
 const requestCardStyle = {
